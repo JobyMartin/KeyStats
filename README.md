@@ -72,13 +72,6 @@ tracking and exit.
 - To reset all stats, quit the app and delete
   `~/Library/Application Support/KeyStats/keystats.sqlite`.
 
-## Packaging as a real .app (optional)
+## Packaging as a real .app (to come)
 
-`swift run` is fine for daily use, but if you want a proper double-clickable
-`.app` bundle (so it survives reboots via Login Items, etc.), the easiest
-route is to create a new Xcode project (macOS App template, SwiftUI +
-AppKit life cycle... actually pick "App" with the **AppKit App Delegate**
-life cycle), then drag the files from `Sources/KeyStats/` into it, and add
-`libsqlite3.tbd` under **Build Phases → Link Binary With Libraries**. Xcode
-will then produce a signed `.app` you can move to `/Applications` and add to
-Login Items.
+`swift run` is fine and all, but I eventually want a proper app...so stay tuned
