@@ -1,7 +1,7 @@
 # KeyStats
 
 A menu-bar-only macOS app that tracks your keystrokes locally and shows you
-stats about them. Nothing leaves your machine — it's a local SQLite file at
+juicy stats about them. Nothing leaves your machine — it's a local SQLite file at
 `~/Library/Application Support/KeyStats/keystats.sqlite`, no networking code
 exists in the app at all.
 
