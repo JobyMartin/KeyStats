@@ -4,12 +4,14 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
+    private var permissionPollTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar only — no Dock icon, no main window on launch.
         NSApp.setActivationPolicy(.accessory)
 
         setupStatusItem()
+        registerPowerNotifications()
 
         if EventTapManager.shared.ensureAccessibilityPermission() {
             EventTapManager.shared.start()
@@ -22,11 +24,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func pollForPermission() {
-        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { timer in
-            if AXIsProcessTrusted() {
-                timer.invalidate()
-                EventTapManager.shared.start()
+        permissionPollTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            guard AXIsProcessTrusted() else { return }
+            timer.invalidate()
+            self?.permissionPollTimer = nil
+            EventTapManager.shared.start()
+        }
+        permissionPollTimer = timer
+    }
+
+    private func registerPowerNotifications() {
+        let nc = NSWorkspace.shared.notificationCenter
+        for name: NSNotification.Name in [NSWorkspace.willSleepNotification, NSWorkspace.willPowerOffNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Storage.shared.flushSynchronously()
             }
+        }
+        nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            // Sleep/wake is a common way for a tap to end up disabled
+            // without a callback ever arriving to tell us.
+            EventTapManager.shared.reenableIfNeeded()
         }
     }
 
@@ -61,7 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
-        EventTapManager.shared.stop()
+        // applicationWillTerminate does the actual teardown now, so this
+        // path and logout/restart get the same clean shutdown.
         NSApp.terminate(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        EventTapManager.shared.stop()
+        Storage.shared.shutdown()
     }
 }

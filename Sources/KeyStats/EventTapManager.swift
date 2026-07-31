@@ -8,10 +8,17 @@ final class EventTapManager {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var watchdog: Timer?
 
     // Tracks which modifier keys are currently held down, so we can build
     // combo strings like "⌘⇧Z" when a regular key is pressed alongside them.
     private var heldModifiers: Set<String> = []
+
+    // Cached frontmost-app name, kept current by an NSWorkspace notification
+    // observer instead of a synchronous per-keystroke IPC lookup. Both
+    // written and read on the main thread, so it needs no lock.
+    private var frontmostAppName = ""
+    private var activationObserver: NSObjectProtocol?
 
     private init() {}
 
@@ -28,6 +35,11 @@ final class EventTapManager {
     // MARK: - Tap lifecycle
 
     func start() {
+        // Idempotent: calling twice would otherwise create a second tap
+        // that double-counts every keystroke and leaks the first one.
+        guard eventTap == nil else { return }
+        assert(Thread.isMainThread, "EventTapManager.start() must run on the main thread")
+
         let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
 
         guard let tap = CGEvent.tapCreate(
@@ -36,6 +48,9 @@ final class EventTapManager {
             options: .listenOnly, // we only observe; we never block or alter keystrokes
             eventsOfInterest: CGEventMask(eventMask),
             callback: { _, type, event, refcon in
+                // Safe only because EventTapManager.shared is an immortal
+                // singleton with no deinit path — this becomes a
+                // use-after-free the moment a second instance ever exists.
                 guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
                 let manager = Unmanaged<EventTapManager>.fromOpaque(refcon).takeUnretainedValue()
                 manager.handle(type: type, event: event)
@@ -49,22 +64,93 @@ final class EventTapManager {
 
         eventTap = tap
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+
+        startObservingFrontmostApp()
+        startWatchdog()
     }
 
     func stop() {
+        watchdog?.invalidate()
+        watchdog = nil
+
+        if let observer = activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            activationObserver = nil
+        }
+
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
         }
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
+        heldModifiers.removeAll()
+    }
+
+    /// Called after sleep/wake, where a tap can end up disabled without any
+    /// callback ever being delivered to tell us.
+    func reenableIfNeeded() {
+        guard let tap = eventTap else { return }
+        if !CGEvent.tapIsEnabled(tap: tap) {
+            NSLog("KeyStats: re-enabling event tap after wake")
+            CGEvent.tapEnable(tap: tap, enable: true)
+            heldModifiers.removeAll()
+        }
+    }
+
+    private func startWatchdog() {
+        watchdog?.invalidate()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.reenableIfNeeded()
+        }
+    }
+
+    private func startObservingFrontmostApp() {
+        // Prime it: the notification only fires on subsequent *changes*.
+        frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            self?.frontmostAppName = app?.localizedName ?? ""
         }
     }
 
     // MARK: - Event handling
 
     private func handle(type: CGEventType, event: CGEvent) {
+        // macOS delivers these as out-of-band notifications with rawValues
+        // 0xFFFFFFFE / 0xFFFFFFFF when the tap has been disabled (usually
+        // because our callback was too slow, i.e. blocked the main thread).
+        // The OLD code had no case for these, so once disabled the tap
+        // stayed dead for the rest of the process's life — this is why
+        // stats used to just stop appearing. We compare rawValue rather
+        // than switching on the enum because CGEventType is a non-frozen
+        // imported C enum, and matching an undeclared rawValue in a Swift
+        // `switch` is undefined behaviour.
+        let raw = type.rawValue
+        if raw == 0xFFFF_FFFE || raw == 0xFFFF_FFFF {
+            NSLog("KeyStats: event tap disabled (%@); re-enabling",
+                  raw == 0xFFFF_FFFE ? "timeout" : "user input")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                start()
+            }
+            // We may have missed key-up flagsChanged events while disabled,
+            // so our held-modifier state is stale. Drop it rather than risk
+            // every future combo being miscounted forever.
+            heldModifiers.removeAll()
+            return
+        }
+
         switch type {
         case .flagsChanged:
             handleFlagsChanged(event: event)
@@ -87,9 +173,11 @@ final class EventTapManager {
 
         if isDown && !heldModifiers.contains(modifierName) {
             heldModifiers.insert(modifierName)
-            Storage.shared.recordModifier(modifierName)
-            Storage.shared.recordHourlyActivity()
-            recordFrontmostApp()
+
+            var sample = Storage.Sample()
+            sample.modifierName = modifierName
+            sample.appName = frontmostAppName
+            Storage.shared.record(sample)
         } else if !isDown {
             heldModifiers.remove(modifierName)
         }
@@ -99,23 +187,21 @@ final class EventTapManager {
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
         let keyName = KeyCodeMap.name(for: keyCode)
 
-        Storage.shared.recordKey(code: keyCode, name: keyName)
-        Storage.shared.recordHourlyActivity()
-        Storage.shared.recordDaily(isBackspace: keyName == "Delete" || keyName == "Forward Delete")
-        recordFrontmostApp()
+        var sample = Storage.Sample()
+        sample.keyCode = keyCode
+        sample.keyName = keyName
+        sample.isBackspace = (keyName == "Delete" || keyName == "Forward Delete")
+        sample.countsTowardDaily = true
+        sample.appName = frontmostAppName
 
         if !heldModifiers.isEmpty {
             let nonShiftMods = heldModifiers.subtracting(["Shift"])
-            guard !nonShiftMods.isEmpty else { return }
-            let combo = comboString(modifiers: heldModifiers, key: keyName)
-            Storage.shared.recordKeybind(combo)
+            if !nonShiftMods.isEmpty {
+                sample.combo = comboString(modifiers: heldModifiers, key: keyName)
+            }
         }
-    }
 
-    private func recordFrontmostApp() {
-        if let app = NSWorkspace.shared.frontmostApplication, let name = app.localizedName {
-            Storage.shared.recordApp(name)
-        }
+        Storage.shared.record(sample)
     }
 
     // MARK: - Modifier helpers

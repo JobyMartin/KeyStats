@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    DO NOT remove com.apple.security.app-sandbox. It looks vestigial for
+    an event-tap app, but it is load-bearing: with it, FileManager's
+    .applicationSupportDirectory resolves inside this app's sandbox
+    container (~/Library/Containers/com.joby.KeyStatsApp/Data/...), which
+    is where a month of real keystroke history already lives. Remove this
+    entitlement and the exact same code silently starts reading/writing a
+    DIFFERENT, empty database at ~/Library/Application Support/KeyStats —
+    it will look like a data-loss bug in the app, not a packaging change.
+  -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <!-- Vestigial (no open/save dialogs in this app) but kept so the
+       signature matches the originally-granted Accessibility identity. -->
+  <key>com.apple.security.files.user-selected.read-only</key>
+  <true/>
+</dict>
+</plist>
