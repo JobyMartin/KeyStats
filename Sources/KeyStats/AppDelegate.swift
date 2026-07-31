@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "KeyStats")
+            button.image = MenuBarIcon.ringGaugeTemplate()
         }
 
         let menu = NSMenu()
@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hosting = NSHostingController(rootView: DashboardView())
             let newWindow = NSWindow(contentViewController: hosting)
             newWindow.title = "KeyStats"
-            newWindow.setContentSize(NSSize(width: 520, height: 700))
+            newWindow.setContentSize(NSSize(width: 560, height: 760))
             newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             newWindow.isReleasedWhenClosed = false
             window = newWindow
