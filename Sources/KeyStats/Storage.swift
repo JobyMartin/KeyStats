@@ -522,6 +522,14 @@ final class Storage {
         var lifetimeTotal = 0
         var backspaceRatio: Double = 0
         var totalToday = 0
+        /// Formatted "MMM d" of the earliest `daily_totals` row — shown as
+        /// "since ..." under the Lifetime stat. This is a proxy for "when
+        /// did I start using KeyStats", derived from data rather than a
+        /// stored value, so it's only as good as this database's history:
+        /// if the real (production) database's history doesn't reach back
+        /// to the actual install date — e.g. after a reset — this should
+        /// be replaced with a real stored join date instead of re-deriving it.
+        var joinedLabel = ""
     }
 
     /// Synchronous snapshot. Callers on a background thread are fine; do not
@@ -556,6 +564,7 @@ final class Storage {
         s.lifetimeTotal = _lifetimeTotal()
         s.backspaceRatio = _backspaceRatioToday()
         s.totalToday = s.weeklyTotals.last?.total ?? 0
+        s.joinedLabel = _joinedLabel()
         return s
     }
 
@@ -646,6 +655,23 @@ final class Storage {
         }
         sqlite3_finalize(stmt)
         return total
+    }
+
+    private func _joinedLabel() -> String {
+        var stmt: OpaquePointer?
+        var earliestDay: String?
+        let sql = "SELECT MIN(day) FROM daily_totals;"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW, let raw = sqlite3_column_text(stmt, 0) {
+                earliestDay = String(cString: raw)
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        guard let earliestDay, let date = DayKey.date(from: earliestDay) else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 
     private func _backspaceRatioToday() -> Double {
