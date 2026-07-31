@@ -2,21 +2,18 @@ import SwiftUI
 import Charts
 
 struct DashboardView: View {
-    @State private var topKeys: [Storage.KeyCount] = []
-    @State private var modifierCounts: [Storage.KeyCount] = []
-    @State private var topKeybinds: [Storage.ComboCount] = []
-    @State private var topApps: [Storage.AppCount] = []
-    @State private var hourly: [Storage.HourBucket] = []
-    @State private var weeklyTotals: [Storage.DayTotal] = []
-    @State private var lifetimeTotal: Int = 0
-    @State private var totalToday: Int = 0
-    @State private var backspaceRatio: Double = 0
-
-    private let refreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    @State private var snapshot = Storage.Snapshot()
+    @State private var isVisible = false
+    // @State so SwiftUI owns this publisher's lifetime, not the (possibly
+    // re-created) view struct.
+    @State private var refreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if !Storage.shared.isAvailable {
+                    errorBanner
+                }
                 headerStats
                 weeklySection
                 hourlySection
@@ -28,17 +25,41 @@ struct DashboardView: View {
             .padding(20)
         }
         .frame(minWidth: 500, minHeight: 700)
-        .onAppear(perform: refresh)
-        .onReceive(refreshTimer) { _ in refresh() }
+        .onAppear {
+            isVisible = true
+            refresh()
+        }
+        .onDisappear {
+            isVisible = false
+        }
+        .onReceive(refreshTimer) { _ in
+            if isVisible { refresh() }
+        }
+    }
+
+    // MARK: - Error banner
+
+    private var errorBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Database unavailable").font(.headline)
+            Text(Storage.shared.lastError ?? "Unknown error")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.red.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .foregroundStyle(.red)
     }
 
     // MARK: - Header
 
     private var headerStats: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            statCard(title: "Today", value: totalToday.formatted())
-            statCard(title: "Lifetime", value: lifetimeTotal.formatted())
-            statCard(title: "Delete ratio", value: String(format: "%.1f%%", backspaceRatio * 100))
+            statCard(title: "Today", value: snapshot.totalToday.formatted())
+            statCard(title: "Lifetime", value: snapshot.lifetimeTotal.formatted())
+            statCard(title: "Delete ratio", value: String(format: "%.1f%%", snapshot.backspaceRatio * 100))
         }
     }
 
@@ -57,7 +78,7 @@ struct DashboardView: View {
 
     private var weeklySection: some View {
         sectionCard("Last 7 days") {
-            Chart(weeklyTotals) { day in
+            Chart(snapshot.weeklyTotals) { day in
                 BarMark(
                     x: .value("Day", day.label),
                     y: .value("Keys", day.total)
@@ -80,10 +101,10 @@ struct DashboardView: View {
 
     private var hourlySection: some View {
         sectionCard("Activity — last 24 hours") {
-            if hourly.isEmpty {
+            if snapshot.hourly.isEmpty {
                 Text("No data yet").foregroundStyle(.secondary).frame(height: 100)
             } else {
-                Chart(hourly) { bucket in
+                Chart(snapshot.hourly) { bucket in
                     BarMark(
                         x: .value("Hour", Date(timeIntervalSince1970: Double(bucket.hour)), unit: .hour),
                         y: .value("Keys", bucket.count)
@@ -103,10 +124,10 @@ struct DashboardView: View {
 
     private var topKeysSection: some View {
         sectionCard("Most-pressed keys") {
-            if topKeys.isEmpty {
+            if snapshot.topKeys.isEmpty {
                 Text("No data yet").foregroundStyle(.secondary)
             } else {
-                Chart(topKeys) { item in
+                Chart(snapshot.topKeys) { item in
                     BarMark(
                         x: .value("Count", item.count),
                         y: .value("Key", item.keyName)
@@ -125,7 +146,7 @@ struct DashboardView: View {
                         }
                     }
                 }
-                .frame(height: CGFloat(max(topKeys.count, 5)) * 26 + 20)
+                .frame(height: CGFloat(max(snapshot.topKeys.count, 5)) * 26 + 20)
             }
         }
     }
@@ -134,18 +155,18 @@ struct DashboardView: View {
 
     private var modifierSection: some View {
         sectionCard("Modifier key usage") {
-            if modifierCounts.isEmpty {
+            if snapshot.modifierCounts.isEmpty {
                 Text("No data yet").foregroundStyle(.secondary)
             } else {
                 HStack(alignment: .top, spacing: 16) {
-                    Chart(modifierCounts) { item in
+                    Chart(snapshot.modifierCounts) { item in
                         SectorMark(angle: .value("Count", item.count), innerRadius: .ratio(0.5))
                             .foregroundStyle(by: .value("Modifier", item.keyName))
                     }
                     .frame(width: 160, height: 160)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(modifierCounts.enumerated()), id: \.offset) { _, item in
+                        ForEach(Array(snapshot.modifierCounts.enumerated()), id: \.offset) { _, item in
                             HStack {
                                 Text(item.keyName)
                                     .font(.system(.body, design: .monospaced))
@@ -166,10 +187,10 @@ struct DashboardView: View {
 
     private var keybindsSection: some View {
         sectionCard("Top keybinds") {
-            if topKeybinds.isEmpty {
+            if snapshot.topKeybinds.isEmpty {
                 Text("No data yet").foregroundStyle(.secondary)
             } else {
-                legendList(topKeybinds.map { ($0.combo, $0.count) })
+                legendList(snapshot.topKeybinds.map { ($0.combo, $0.count) })
             }
         }
     }
@@ -178,10 +199,10 @@ struct DashboardView: View {
 
     private var appsSection: some View {
         sectionCard("Keystrokes by app") {
-            if topApps.isEmpty {
+            if snapshot.topApps.isEmpty {
                 Text("No data yet").foregroundStyle(.secondary)
             } else {
-                legendList(topApps.map { ($0.appName, $0.count) })
+                legendList(snapshot.topApps.map { ($0.appName, $0.count) })
             }
         }
     }
@@ -218,17 +239,14 @@ struct DashboardView: View {
         }
     }
 
-    private var todayKey: String { DateFormatter.dayKey.string(from: Date()) }
+    private var todayKey: String { DayKey.string(from: Date()) }
 
     private func refresh() {
-        topKeys = Storage.shared.topKeys()
-        modifierCounts = Storage.shared.modifierCounts()
-        topKeybinds = Storage.shared.topKeybinds()
-        topApps = Storage.shared.topApps()
-        hourly = Storage.shared.last24Hours()
-        weeklyTotals = Storage.shared.lastSevenDays()
-        lifetimeTotal = Storage.shared.lifetimeTotal()
-        backspaceRatio = Storage.shared.backspaceRatioToday()
-        totalToday = weeklyTotals.last?.total ?? 0
+        // Runs on the db queue; result delivered back on main. The main
+        // thread never touches SQLite anymore — this is the reader half of
+        // the crash fix.
+        Storage.shared.snapshot { snap in
+            snapshot = snap
+        }
     }
 }
