@@ -70,6 +70,13 @@ enum AppConfig {
         static let sqliteBusyTimeoutMs: Int32 = 3_000
     }
 
+    enum Permission {
+        /// Deep link straight to the Accessibility pane, rather than just
+        /// "Privacy & Security" — one fewer click for the user to take.
+        static let accessibilitySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        static let resetCommand = "tccutil reset Accessibility"
+    }
+
     enum Query {
         static let topKeysLimit = 15
         static let topKeybindsLimit = 15
@@ -83,6 +90,11 @@ enum AppConfig {
         static let dailyGoal = "dailyGoal"
         static let countWeekendsTowardStreak = "countWeekendsTowardStreak"
         static let themeID = "themeID"
+        /// Set true the first time the event tap ever starts successfully.
+        /// Lets the permission banner distinguish "lost permission after an
+        /// update" (scarier, needs revoke-then-re-grant wording) from a
+        /// brand-new install that's never been granted at all.
+        static let hasEverTracked = "hasEverTracked"
     }
 }
 

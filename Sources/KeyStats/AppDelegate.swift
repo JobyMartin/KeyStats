@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var preferencesWindow: NSWindow?
     private var permissionPollTimer: Timer?
+    private var lastMenuPermissionState: PermissionMonitor.State?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar only — no Dock icon, no main window on launch.
@@ -25,23 +26,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showPreferences()
         }
 
-        if EventTapManager.shared.ensureAccessibilityPermission() {
-            EventTapManager.shared.start()
-        } else {
-            // Permission dialog was just shown by the OS. Poll until granted,
-            // since the user has to go grant it in System Settings and there's
-            // no callback for that.
-            pollForPermission()
-        }
+        EventTapManager.shared.ensureAccessibilityPermission()
+        EventTapManager.shared.start()
+        refreshStatusItemForPermissionState()
+        pollForPermission()
     }
 
+    /// Runs for the lifetime of the app, not just until the first grant —
+    /// permission can be revoked (e.g. after an update breaks the CDHash-
+    /// keyed grant) or re-granted at any point during a session, and this is
+    /// the only thing that notices without a relaunch. Also drives the menu
+    /// bar's permission-warning state.
     private func pollForPermission() {
         permissionPollTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.permissionPoll, repeats: true) { [weak self] timer in
-            guard AXIsProcessTrusted() else { return }
-            timer.invalidate()
-            self?.permissionPollTimer = nil
-            EventTapManager.shared.start()
+        let timer = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.permissionPoll, repeats: true) { [weak self] _ in
+            PermissionMonitor.shared.refresh()
+            if AXIsProcessTrusted() && !EventTapManager.shared.isRunning {
+                EventTapManager.shared.start()
+            }
+            self?.refreshStatusItemForPermissionState()
         }
         permissionPollTimer = timer
     }
@@ -62,19 +65,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = item
+        rebuildMenu(permissionState: PermissionMonitor.shared.state)
+    }
+
+    /// Rebuilds the status icon + menu from scratch for the given
+    /// permission state. Called on launch and whenever `pollForPermission()`
+    /// notices the state changed, so a mid-session revoke/re-grant updates
+    /// the menu bar without a relaunch.
+    private func refreshStatusItemForPermissionState() {
+        let state = PermissionMonitor.shared.state
+        guard state != lastMenuPermissionState else { return }
+        lastMenuPermissionState = state
+        rebuildMenu(permissionState: state)
+    }
+
+    private func rebuildMenu(permissionState: PermissionMonitor.State) {
+        guard let item = statusItem else { return }
+
         if let button = item.button {
-            button.image = MenuBarIcon.ringGaugeTemplate()
+            if permissionState == .granted {
+                button.image = MenuBarIcon.ringGaugeTemplate()
+                button.contentTintColor = nil
+            } else {
+                // Template images can't carry color, so a real (non-template)
+                // symbol image is used here to show the warning in its
+                // natural color instead of menu-bar black/white.
+                button.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Accessibility permission needed")
+                button.image?.isTemplate = false
+                button.contentTintColor = .systemYellow
+            }
         }
 
         let menu = NSMenu()
+        if permissionState != .granted {
+            let warning = NSMenuItem(title: "⚠ Accessibility permission needed", action: #selector(showDashboard), keyEquivalent: "")
+            menu.addItem(warning)
+            menu.addItem(NSMenuItem.separator())
+        }
         menu.addItem(NSMenuItem(title: "Open Dashboard", action: #selector(showDashboard), keyEquivalent: "d"))
         menu.addItem(NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit KeyStats", action: #selector(quit), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
-
-        statusItem = item
     }
 
     @objc private func showDashboard() {
