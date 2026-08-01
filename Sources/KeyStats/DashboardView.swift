@@ -12,6 +12,12 @@ struct DashboardView: View {
     // @AppStorage means a future slider needs zero rework here.
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
+    // Theme picker itself now lives in Preferences → Appearance
+    // (PreferencesView.swift) — this just needs to read the same key so the
+    // dashboard repaints when it's changed there.
+    @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
+
+    private var theme: AppTheme { AppTheme.theme(forID: themeID) }
 
     var body: some View {
         ScrollView {
@@ -31,9 +37,10 @@ struct DashboardView: View {
             }
             .padding(AppConfig.Layout.contentPadding)
         }
-        .background(Theme.bg)
+        .background(theme.bg)
         .scrollContentBackground(.hidden)
         .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
+        .environment(\.theme, theme)
         .onAppear {
             isVisible = true
             refresh()
@@ -48,18 +55,39 @@ struct DashboardView: View {
 
     // MARK: - Header
 
-    // Ring Gauge mark + wordmark. Static for now — a status pill, settings
-    // gear, and theme switcher were all designed (see znotes/design.md
-    // §4.1) but need state this app doesn't have yet (pause/resume,
-    // Preferences window, theme selection), so they're left out here.
+    // Ring Gauge mark + wordmark + settings gear. The status pill (design
+    // §4.1) still needs state this app doesn't have yet (pause/resume). The
+    // gear opens the real Preferences window (PreferencesView.swift) —
+    // AppDelegate owns that window, so this just posts a notification for
+    // it to handle, the same indirection pattern as the power-notification
+    // observers in AppDelegate.
     private var header: some View {
         HStack(spacing: 9) {
             RingGaugeMark(size: 28)
             Text("KeyStats")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(theme.text)
             Spacer()
+            settingsButton
         }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            NotificationCenter.default.post(name: .openPreferences, object: nil)
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(theme.textDim)
+                .frame(width: 26, height: 26)
+                .background(theme.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(theme.border, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Error banner
@@ -69,13 +97,13 @@ struct DashboardView: View {
             Text("Database unavailable").font(.headline)
             Text(Storage.shared.lastError ?? "Unknown error")
                 .font(.caption)
-                .foregroundStyle(Theme.textDim)
+                .foregroundStyle(theme.textDim)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Theme.bad.opacity(0.15))
+        .background(theme.bad.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .foregroundStyle(Theme.bad)
+        .foregroundStyle(theme.bad)
     }
 
     // MARK: - Header stats
@@ -97,25 +125,25 @@ struct DashboardView: View {
             Text(title.uppercased())
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.5)
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(theme.textFaint)
             Text(value)
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
-                .foregroundStyle(primary ? Theme.accent : Theme.text)
+                .foregroundStyle(primary ? theme.accent : theme.text)
             // Always render this line, even when there's no subtitle —
             // otherwise this card is one line shorter than its siblings
             // and the row heights in headerStats' grid don't match.
             Text(subtitle ?? " ")
                 .font(.system(size: 10.5))
-                .foregroundStyle(Theme.textFaint)
+                .foregroundStyle(theme.textFaint)
                 .opacity(subtitle == nil ? 0 : 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppConfig.Layout.statCardPadding)
-        .background(primary ? Theme.surfaceRaised : Theme.surface)
+        .background(primary ? theme.surfaceRaised : theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous)
-                .stroke(primary ? Theme.accent.opacity(0.35) : Theme.border, lineWidth: 1)
+                .stroke(primary ? theme.accent.opacity(0.35) : theme.border, lineWidth: 1)
         )
     }
 
@@ -126,8 +154,8 @@ struct DashboardView: View {
             RingGauge(
                 progress: goalProgress,
                 lineWidth: AppConfig.Layout.goalRingLineWidth,
-                trackColor: Theme.borderSoft,
-                progressColor: goalMet ? Theme.good : Theme.accent
+                trackColor: theme.borderSoft,
+                progressColor: goalMet ? theme.good : theme.accent
             )
             .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
             .animation(.easeOut(duration: 0.4), value: goalProgress)
@@ -135,10 +163,10 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(goalPercent)% of daily goal")
                     .font(.system(size: 14.5, weight: .bold))
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(theme.text)
                 Text("\(snapshot.totalToday.formatted()) / \(dailyGoal.formatted()) keys")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Theme.textDim)
+                    .foregroundStyle(theme.textDim)
             }
 
             Spacer()
@@ -146,15 +174,15 @@ struct DashboardView: View {
             if streak > 0 {
                 Text("🔥 \(streak)-day streak")
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(theme.accent)
             }
         }
         .padding(AppConfig.Layout.cardPadding)
-        .background(Theme.surface)
+        .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
-                .stroke(Theme.border, lineWidth: 1)
+                .stroke(theme.border, lineWidth: 1)
         )
     }
 
@@ -192,13 +220,13 @@ struct DashboardView: View {
                     x: .value("Day", day.label),
                     y: .value("Keys", day.total)
                 )
-                .foregroundStyle(day.day == todayKey ? Theme.accent : Theme.surfaceRaised)
+                .foregroundStyle(day.day == todayKey ? theme.accent : theme.surfaceRaised)
                 .cornerRadius(3)
                 .annotation(position: .top) {
                     if day.total > 0 {
                         Text(day.total.formatted())
                             .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Theme.textFaint)
+                            .foregroundStyle(theme.textFaint)
                     }
                 }
             }
@@ -206,7 +234,7 @@ struct DashboardView: View {
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks { _ in
-                    AxisValueLabel().foregroundStyle(Theme.textFaint)
+                    AxisValueLabel().foregroundStyle(theme.textFaint)
                 }
             }
         }
@@ -217,27 +245,27 @@ struct DashboardView: View {
     private var hourlySection: some View {
         sectionCard("Activity — last 24 hours") {
             if snapshot.hourly.isEmpty {
-                Text("No data yet").foregroundStyle(Theme.textFaint).frame(height: 120)
+                Text("No data yet").foregroundStyle(theme.textFaint).frame(height: 120)
             } else {
                 Chart(snapshot.hourly) { bucket in
                     BarMark(
                         x: .value("Hour", Date(timeIntervalSince1970: Double(bucket.hour)), unit: .hour),
                         y: .value("Keys", bucket.count)
                     )
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(theme.accent)
                     .cornerRadius(2)
                 }
                 .frame(height: AppConfig.Layout.hourlyChartHeight)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 4)) {
-                        AxisGridLine().foregroundStyle(Theme.borderSoft)
-                        AxisValueLabel(format: .dateTime.hour()).foregroundStyle(Theme.textFaint)
+                        AxisGridLine().foregroundStyle(theme.borderSoft)
+                        AxisValueLabel(format: .dateTime.hour()).foregroundStyle(theme.textFaint)
                     }
                 }
                 .chartYAxis {
                     AxisMarks {
-                        AxisGridLine().foregroundStyle(Theme.borderSoft)
-                        AxisValueLabel().foregroundStyle(Theme.textFaint)
+                        AxisGridLine().foregroundStyle(theme.borderSoft)
+                        AxisValueLabel().foregroundStyle(theme.textFaint)
                     }
                 }
             }
@@ -249,18 +277,18 @@ struct DashboardView: View {
     private var topKeysSection: some View {
         sectionCard("Most-pressed keys") {
             if snapshot.topKeys.isEmpty {
-                Text("No data yet").foregroundStyle(Theme.textFaint)
+                Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 let maxCount = snapshot.topKeys.first?.count ?? 1
                 VStack(spacing: 8) {
                     ForEach(snapshot.topKeys) { item in
                         HStack(spacing: 10) {
                             keycapChip(item.keyName)
-                            barTrack(fraction: Double(item.count) / Double(maxCount), color: Theme.accent)
+                            barTrack(fraction: Double(item.count) / Double(maxCount), color: theme.accent)
                                 .frame(height: 16)
                             Text(item.count.formatted())
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(Theme.textDim)
+                                .foregroundStyle(theme.textDim)
                                 .frame(width: 42, alignment: .trailing)
                         }
                     }
@@ -275,14 +303,14 @@ struct DashboardView: View {
     private func keycapChip(_ label: String) -> some View {
         Text(Self.shortKeyLabel(label))
             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Theme.textDim)
+            .foregroundStyle(theme.textDim)
             .lineLimit(1)
             .minimumScaleFactor(0.55)
             .frame(width: 34, height: 20)
-            .background(Theme.surfaceRaised)
+            .background(theme.surfaceRaised)
             .overlay(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .stroke(Theme.border, lineWidth: 1)
+                    .stroke(theme.border, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
@@ -314,7 +342,7 @@ struct DashboardView: View {
     private func barTrack(fraction: Double, color: Color) -> some View {
         GeometryReader { geo in
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Theme.borderSoft)
+                .fill(theme.borderSoft)
                 .overlay(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(LinearGradient(colors: [color.opacity(0.45), color], startPoint: .leading, endPoint: .trailing))
@@ -328,12 +356,12 @@ struct DashboardView: View {
     private var modifierSection: some View {
         sectionCard("Modifier key usage") {
             if snapshot.modifierCounts.isEmpty {
-                Text("No data yet").foregroundStyle(Theme.textFaint)
+                Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 let total = max(1, snapshot.modifierCounts.reduce(0) { $0 + $1.count })
                 VStack(spacing: 9) {
                     ForEach(Array(snapshot.modifierCounts.enumerated()), id: \.offset) { index, item in
-                        let color = Theme.series[index % Theme.series.count]
+                        let color = theme.series[index % theme.series.count]
                         let pct = Double(item.count) / Double(total)
                         HStack(spacing: 10) {
                             RoundedRectangle(cornerRadius: 2)
@@ -341,13 +369,13 @@ struct DashboardView: View {
                                 .frame(width: 8, height: 8)
                             Text(item.keyName)
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(Theme.text)
+                                .foregroundStyle(theme.text)
                                 .frame(width: 64, alignment: .leading)
                             barTrack(fraction: pct, color: color)
                                 .frame(height: 6)
                             Text(String(format: "%.0f%%", pct * 100))
                                 .font(.system(size: 11))
-                                .foregroundStyle(Theme.textFaint)
+                                .foregroundStyle(theme.textFaint)
                                 .frame(width: 34, alignment: .trailing)
                         }
                     }
@@ -361,7 +389,7 @@ struct DashboardView: View {
     private var keybindsSection: some View {
         sectionCard("Top keybinds") {
             if snapshot.topKeybinds.isEmpty {
-                Text("No data yet").foregroundStyle(Theme.textFaint)
+                Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 FlowLayout(spacing: 8) {
                     ForEach(snapshot.topKeybinds) { item in
@@ -380,26 +408,26 @@ struct DashboardView: View {
             HStack(spacing: 3) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                     if index > 0 {
-                        Text("+").font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                        Text("+").font(.system(size: 10)).foregroundStyle(theme.textFaint)
                     }
                     Text(part)
                         .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.text)
+                        .foregroundStyle(theme.text)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(Theme.bg)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.border, lineWidth: 1))
+                        .background(theme.bg)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(theme.border, lineWidth: 1))
                         .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
             Text(count.formatted())
                 .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(theme.accent)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Theme.surfaceRaised)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
+        .background(theme.surfaceRaised)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.border, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         // Without this, FlowLayout's placement proposal can end up a hair
         // narrower than the chip's ideal width, and SwiftUI silently
@@ -414,7 +442,7 @@ struct DashboardView: View {
     private var appsSection: some View {
         sectionCard("Keystrokes by app") {
             if snapshot.topApps.isEmpty {
-                Text("No data yet").foregroundStyle(Theme.textFaint)
+                Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 let items = Array(snapshot.topApps.prefix(AppConfig.Layout.legendMaxRows).enumerated())
                 VStack(spacing: 0) {
@@ -422,19 +450,19 @@ struct DashboardView: View {
                         let (index, item) = pair
                         HStack(spacing: 10) {
                             Circle()
-                                .fill(Theme.series[index % Theme.series.count])
+                                .fill(theme.series[index % theme.series.count])
                                 .frame(width: 9, height: 9)
                             Text(item.appName.isEmpty ? "(unknown)" : item.appName)
                                 .font(.system(size: 12.5))
-                                .foregroundStyle(Theme.text)
+                                .foregroundStyle(theme.text)
                             Spacer()
                             Text(item.count.formatted())
                                 .font(.system(size: 11.5, design: .monospaced))
-                                .foregroundStyle(Theme.textDim)
+                                .foregroundStyle(theme.textDim)
                         }
                         .padding(.vertical, 7)
                         if position < items.count - 1 {
-                            Divider().overlay(Theme.borderSoft)
+                            Divider().overlay(theme.borderSoft)
                         }
                     }
                 }
@@ -448,16 +476,16 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(theme.text)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppConfig.Layout.cardPadding)
-        .background(Theme.surface)
+        .background(theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
-                .stroke(Theme.border, lineWidth: 1)
+                .stroke(theme.border, lineWidth: 1)
         )
     }
 
