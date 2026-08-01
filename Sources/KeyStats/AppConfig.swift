@@ -29,6 +29,14 @@ enum AppConfig {
         static let streakLookbackDays = 365
     }
 
+    enum Profile {
+        /// Shown in the greeting row and menu-bar dropdown when no name has
+        /// been set. Never persisted — `UserSettings.displayName` stores
+        /// `""` and this is computed at read time. Design §4.5.
+        static let namePlaceholder = "Anonymous Typist"
+        static let nameMaxLength = 24
+    }
+
     enum Window {
         static let dashboardSize = CGSize(width: 560, height: 760)
         static let dashboardMinWidth: CGFloat = 560
@@ -90,6 +98,7 @@ enum AppConfig {
         static let dailyGoal = "dailyGoal"
         static let countWeekendsTowardStreak = "countWeekendsTowardStreak"
         static let themeID = "themeID"
+        static let displayName = "displayName"
         /// Set true the first time the event tap ever starts successfully.
         /// Lets the permission banner distinguish "lost permission after an
         /// update" (scarier, needs revoke-then-re-grant wording) from a
@@ -114,5 +123,21 @@ enum UserSettings {
     static var countWeekendsTowardStreak: Bool {
         UserDefaults.standard.object(forKey: AppConfig.Defaults.countWeekendsTowardStreak) as? Bool
             ?? AppConfig.Goal.countWeekendsTowardStreakDefault
+    }
+
+    /// Raw stored value — `""` when never set. The placeholder
+    /// ("Anonymous Typist") is intentionally not stored here; compute it at
+    /// the call site (or use `firstName`, which already does).
+    static var displayName: String {
+        UserDefaults.standard.string(forKey: AppConfig.Defaults.displayName) ?? ""
+    }
+
+    /// First space-delimited component of `displayName`, or nil when no
+    /// name is set — lets AppKit code (the menu bar dropdown) decide its own
+    /// "Hey there" fallback without duplicating the split logic.
+    static var firstName: String? {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return name.split(separator: " ").first.map(String.init)
     }
 }

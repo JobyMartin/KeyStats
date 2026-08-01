@@ -16,8 +16,10 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
+    @AppStorage(AppConfig.Defaults.displayName) private var displayName = ""
     @ObservedObject private var permissions = PermissionMonitor.shared
     @State private var selectedTab: Tab = .appearance
+    @State private var longestStreak: (days: Int, start: String, end: String)?
 
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
 
@@ -70,17 +72,58 @@ struct PreferencesView: View {
 
     private var generalTab: some View {
         VStack(alignment: .leading, spacing: 18) {
+            displayNameSection
             accessibilitySection
             VStack(alignment: .leading, spacing: 8) {
                 Text("More settings coming soon.")
                     .font(.system(size: 13))
                     .foregroundStyle(theme.textDim)
-                Text("Display name, launch at login, and the frontmost-app toggle land here next.")
+                Text("Launch at login and the frontmost-app toggle land here next.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(theme.textFaint)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+    }
+
+    // MARK: - Display name
+
+    private var displayNameSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Display name")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(theme.text)
+            TextField(AppConfig.Profile.namePlaceholder, text: $displayName)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .foregroundStyle(theme.text)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(theme.border, lineWidth: 1)
+                )
+                // The placeholder itself is never persisted — this just caps
+                // what gets typed in, so `displayName` stays either "" or a
+                // real name, never the placeholder text.
+                .onChange(of: displayName) { _, newValue in
+                    if newValue.count > AppConfig.Profile.nameMaxLength {
+                        displayName = String(newValue.prefix(AppConfig.Profile.nameMaxLength))
+                    }
+                }
+            Text("Shows up in the menu bar dropdown's greeting. Leave blank to stay anonymous.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(theme.textFaint)
+        }
+        .padding(12)
+        .background(theme.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(theme.border, lineWidth: 1)
+        )
     }
 
     private var accessibilitySection: some View {
@@ -185,7 +228,59 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 18) {
             dailyGoalEditor
             weekendToggle
+            longestStreakSection
         }
+        .task { loadLongestStreak() }
+        .onChange(of: countWeekendsTowardStreak) { _, _ in loadLongestStreak() }
+    }
+
+    // MARK: - Longest streak
+
+    private var longestStreakSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Longest streak")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(theme.text)
+            if let longestStreak {
+                Text("\(longestStreak.days) day\(longestStreak.days == 1 ? "" : "s")")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.accent)
+                Text(Self.streakRangeLabel(longestStreak))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(theme.textFaint)
+            } else {
+                Text("No streak yet")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.textDim)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(theme.border, lineWidth: 1)
+        )
+    }
+
+    private func loadLongestStreak() {
+        let countWeekends = countWeekendsTowardStreak
+        Storage.shared.allMetGoalDays { days in
+            longestStreak = StreakCalculator.longestStreak(metGoalDays: days, countWeekends: countWeekends)
+        }
+    }
+
+    /// "Mar 4 – Apr 5" (or just "Mar 4" for a one-day streak) from a
+    /// `StreakCalculator.longestStreak` result's raw "yyyy-MM-dd" bounds.
+    private static func streakRangeLabel(_ streak: (days: Int, start: String, end: String)) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        guard let startDate = DayKey.date(from: streak.start) else { return "\(streak.start) – \(streak.end)" }
+        let startLabel = formatter.string(from: startDate)
+        if streak.start == streak.end { return startLabel }
+        guard let endDate = DayKey.date(from: streak.end) else { return "\(streak.start) – \(streak.end)" }
+        return "\(startLabel) – \(formatter.string(from: endDate))"
     }
 
     private var weekendToggle: some View {
