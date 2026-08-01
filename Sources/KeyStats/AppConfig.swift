@@ -110,6 +110,10 @@ enum AppConfig {
         /// update" (scarier, needs revoke-then-re-grant wording) from a
         /// brand-new install that's never been granted at all.
         static let hasEverTracked = "hasEverTracked"
+        /// User-initiated pause (design §5, §8 item 6). Persisted so a pause
+        /// started before quitting (e.g. "pause before a screen share")
+        /// survives a relaunch instead of silently resuming.
+        static let isPaused = "isPaused"
     }
 }
 

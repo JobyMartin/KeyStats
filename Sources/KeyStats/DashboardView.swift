@@ -5,6 +5,8 @@ struct DashboardView: View {
     @State private var snapshot = Storage.Snapshot()
     @State private var isVisible = false
     @ObservedObject private var permissions = PermissionMonitor.shared
+    @ObservedObject private var eventTap = EventTapManager.shared
+    @State private var pulseOn = false
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
     @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
@@ -65,9 +67,8 @@ struct DashboardView: View {
 
     // MARK: - Header
 
-    // Ring Gauge mark + wordmark + settings gear. The status pill (design
-    // §4.1) still needs state this app doesn't have yet (pause/resume). The
-    // gear opens the real Preferences window (PreferencesView.swift) —
+    // Ring Gauge mark + wordmark + status pill + settings gear. The gear
+    // opens the real Preferences window (PreferencesView.swift) —
     // AppDelegate owns that window, so this just posts a notification for
     // it to handle, the same indirection pattern as the power-notification
     // observers in AppDelegate.
@@ -78,7 +79,76 @@ struct DashboardView: View {
                 .font(typography.wordmark)
                 .foregroundStyle(theme.text)
             Spacer()
+            statusPill
             settingsButton
+        }
+    }
+
+    // MARK: - Status pill
+
+    // design §4.1: clickable pause/resume button doubling as a status
+    // readout. Three states — green pulse (active), neutral dot (paused,
+    // not an error), bad dot (can't track — permission problem, the
+    // permission banner already shouts the details so this stays quiet).
+    // One source of truth: reads/writes EventTapManager directly, same as
+    // the menu bar dropdown's pause row.
+    private var canTrack: Bool { permissions.state == .granted }
+
+    private var statusPill: some View {
+        Button {
+            guard canTrack else { return }
+            eventTap.togglePause()
+        } label: {
+            HStack(spacing: 6) {
+                ZStack {
+                    // Glow: a second circle scaling/fading outward behind
+                    // the dot. Kept as its own Circle (not a `.shadow`,
+                    // which rasterizes to a square bounding box at larger
+                    // radii) so the pulse stays perfectly round.
+                    Circle()
+                        .fill(pillColor)
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(pillPulses && pulseOn ? 2.2 : 1)
+                        .opacity(pillPulses && pulseOn ? 0 : 0.6)
+                    Circle()
+                        .fill(pillColor)
+                        .frame(width: 7, height: 7)
+                }
+                Text(pillLabel)
+                    .font(typography.caption)
+                    .foregroundStyle(theme.textDim)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(theme.surface)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(theme.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canTrack)
+        .onAppear { startPulseIfNeeded() }
+        .onChange(of: pillPulses) { _, _ in startPulseIfNeeded() }
+    }
+
+    private var pillLabel: String {
+        if !canTrack { return "Can't track" }
+        return eventTap.isPaused ? "Tracking paused" : "Tracking active"
+    }
+
+    private var pillColor: Color {
+        if !canTrack { return theme.bad }
+        return eventTap.isPaused ? theme.textFaint : theme.good
+    }
+
+    private var pillPulses: Bool { canTrack && !eventTap.isPaused }
+
+    private func startPulseIfNeeded() {
+        guard pillPulses else {
+            pulseOn = false
+            return
+        }
+        withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+            pulseOn = true
         }
     }
 
@@ -186,7 +256,7 @@ struct DashboardView: View {
 
     private var headerStats: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            statCard(title: "Today", value: snapshot.totalToday.formatted(), primary: true)
+            statCard(title: eventTap.isPaused ? "Today · Paused" : "Today", value: snapshot.totalToday.formatted(), primary: true)
             statCard(
                 title: "Lifetime",
                 value: snapshot.lifetimeTotal.formatted(),
