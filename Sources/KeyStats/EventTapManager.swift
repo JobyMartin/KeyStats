@@ -3,12 +3,18 @@ import Carbon.HIToolbox
 
 /// Captures system-wide key events via a CGEventTap and turns them into
 /// aggregated stats. Never stores raw text/passwords — only counts.
-final class EventTapManager {
+final class EventTapManager: ObservableObject {
     static let shared = EventTapManager()
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var watchdog: Timer?
+
+    /// User-initiated pause — distinct from the tap being down because
+    /// permission was lost. Published so the dashboard pill, menu bar
+    /// dropdown, and Preferences → General toggle all read one source of
+    /// truth (design §4.1) instead of each polling `isRunning` themselves.
+    @Published private(set) var isPaused: Bool = UserDefaults.standard.bool(forKey: AppConfig.Defaults.isPaused)
 
     // Tracks which modifier keys are currently held down, so we can build
     // combo strings like "⌘⇧Z" when a regular key is pressed alongside them.
@@ -99,6 +105,31 @@ final class EventTapManager {
         runLoopSource = nil
         heldModifiers.removeAll()
         PermissionMonitor.shared.refresh()
+    }
+
+    // MARK: - Pause/resume
+
+    /// Flips the active state without quitting the app or removing the menu
+    /// bar icon (design §5). Backed by tearing the real tap down/up rather
+    /// than a cheap boolean short-circuit in `handle`, so a paused session
+    /// truly stops listening instead of just discarding samples.
+    func pause() {
+        guard !isPaused else { return }
+        isPaused = true
+        UserDefaults.standard.set(true, forKey: AppConfig.Defaults.isPaused)
+        stop()
+    }
+
+    @discardableResult
+    func resume() -> Bool {
+        guard isPaused else { return isRunning }
+        isPaused = false
+        UserDefaults.standard.set(false, forKey: AppConfig.Defaults.isPaused)
+        return start()
+    }
+
+    func togglePause() {
+        if isPaused { resume() } else { pause() }
     }
 
     /// Called after sleep/wake, where a tap can end up disabled without any

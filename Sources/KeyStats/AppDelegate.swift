@@ -1,4 +1,5 @@
 import Cocoa
+import Combine
 import SwiftUI
 
 extension Notification.Name {
@@ -15,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var preferencesWindow: NSWindow?
     private var permissionPollTimer: Timer?
     private var lastMenuPermissionState: PermissionMonitor.State?
+    private var pauseMenuItem: NSMenuItem?
+    private var pauseCancellable: AnyCancellable?
     private lazy var lastFontSignature = Self.fontSignature()
     private let launchedAt = Date()
     private static let launchTimeFormatter: DateFormatter = {
@@ -42,9 +45,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         EventTapManager.shared.ensureAccessibilityPermission()
-        EventTapManager.shared.start()
+        if !EventTapManager.shared.isPaused {
+            EventTapManager.shared.start()
+        }
         refreshStatusItemForPermissionState()
         pollForPermission()
+
+        // Pause can also be toggled from the dashboard pill or Preferences,
+        // not just this menu — keep the status icon/menu row in sync with
+        // whichever source flipped it, without waiting for the poll timer.
+        pauseCancellable = EventTapManager.shared.$isPaused
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncPauseMenuItem() }
     }
 
     /// Runs for the lifetime of the app, not just until the first grant —
@@ -56,10 +68,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         permissionPollTimer?.invalidate()
         let timer = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.permissionPoll, repeats: true) { [weak self] _ in
             PermissionMonitor.shared.refresh()
-            if AXIsProcessTrusted() && !EventTapManager.shared.isRunning {
+            if AXIsProcessTrusted() && !EventTapManager.shared.isRunning && !EventTapManager.shared.isPaused {
                 EventTapManager.shared.start()
             }
             self?.refreshStatusItemForPermissionState()
+            self?.syncPauseMenuItem()
         }
         permissionPollTimer = timer
     }
@@ -111,8 +124,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // (display name, live count) an NSMenuItem's plain title can't
         // format. Refreshed on every open in menuWillOpen(_:), since
         // rebuildMenu itself only runs on launch and on permission changes.
-        menu.addItem(makeMenuBarHostingItem(MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt))))
+        menu.addItem(makeMenuBarHostingItem(MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt), isPaused: EventTapManager.shared.isPaused)))
         menu.addItem(makeMenuBarHostingItem(MenuBarStatRow(todayTotal: 0, goalPercent: 0)))
+        menu.addItem(NSMenuItem.separator())
+
+        let pauseItem = menuItem(title: Self.pauseTitle(isPaused: EventTapManager.shared.isPaused), symbol: Self.pauseSymbol(isPaused: EventTapManager.shared.isPaused), action: #selector(togglePauseFromMenu), keyEquivalent: "")
+        menu.addItem(pauseItem)
+        pauseMenuItem = pauseItem
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(menuItem(title: "Open Dashboard", symbol: "chart.bar.fill", action: #selector(showDashboard), keyEquivalent: "d"))
@@ -143,9 +161,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return menuItem
     }
 
+    private static func pauseTitle(isPaused: Bool) -> String {
+        isPaused ? "Resume Tracking" : "Pause Tracking"
+    }
+
+    private static func pauseSymbol(isPaused: Bool) -> String {
+        isPaused ? "play.fill" : "pause.fill"
+    }
+
+    @objc private func togglePauseFromMenu() {
+        EventTapManager.shared.togglePause()
+        syncPauseMenuItem()
+    }
+
+    /// Keeps the dropdown's pause row and the status icon in sync with
+    /// `EventTapManager.isPaused` without a full menu rebuild — called right
+    /// after toggling and from the permission-poll timer, so a pause/resume
+    /// triggered elsewhere (Preferences, dashboard pill) still reaches the
+    /// menu bar without waiting for the menu to next open.
+    private func syncPauseMenuItem() {
+        let isPaused = EventTapManager.shared.isPaused
+        pauseMenuItem?.title = Self.pauseTitle(isPaused: isPaused)
+        pauseMenuItem?.image = NSImage(systemSymbolName: Self.pauseSymbol(isPaused: isPaused), accessibilityDescription: nil)
+        updateStatusIcon(permissionState: PermissionMonitor.shared.state)
+    }
+
     private func updateStatusIcon(permissionState: PermissionMonitor.State) {
         guard let button = statusItem?.button else { return }
-        if permissionState == .granted {
+        if permissionState == .granted && EventTapManager.shared.isPaused {
+            // Same monochrome-template treatment as the normal ring icon —
+            // paused is a quiet, non-error state (design §4.1), not a
+            // warning, so it shouldn't get the yellow triangle's treatment.
+            button.image = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: "Tracking paused")
+            button.contentTintColor = nil
+        } else if permissionState == .granted {
             let goal = UserSettings.dailyGoal
             let progress = goal > 0 ? Double(Storage.shared.todayTotal()) / Double(goal) : 0
             button.image = MenuBarIcon.ringGaugeTemplate(progress: progress)
@@ -164,18 +213,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// every time the dropdown opens — `rebuildMenu` only runs at launch and
     /// on permission-state changes, so nothing else keeps "Today" current.
     func menuWillOpen(_ menu: NSMenu) {
-        updateStatusIcon(permissionState: PermissionMonitor.shared.state)
+        syncPauseMenuItem()
 
         let today = Storage.shared.todayTotal()
         let goal = UserSettings.dailyGoal
         let percent = goal > 0 ? Int((Double(today) / Double(goal) * 100).rounded()) : 0
+        let isPaused = EventTapManager.shared.isPaused
 
         for item in menu.items {
             if let hosting = item.view as? NSHostingView<MenuBarStatRow> {
                 hosting.rootView = MenuBarStatRow(todayTotal: today, goalPercent: percent)
                 hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
             } else if let hosting = item.view as? NSHostingView<MenuBarGreetingRow> {
-                hosting.rootView = MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt))
+                hosting.rootView = MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt), isPaused: isPaused)
                 hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
             }
         }

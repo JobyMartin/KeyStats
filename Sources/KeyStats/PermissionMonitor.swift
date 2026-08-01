@@ -60,14 +60,20 @@ final class PermissionMonitor: ObservableObject {
 
         let trusted = AXIsProcessTrusted()
         let running = EventTapManager.shared.isRunning
+        let paused = EventTapManager.shared.isPaused
 
         let newState: State
-        switch (trusted, running) {
-        case (false, _):
+        switch (trusted, running, paused) {
+        case (false, _, _):
             newState = .notTrusted
-        case (true, true):
+        case (true, _, true):
+            // The tap is down because the user paused it, not because it
+            // failed — surfacing this as trustedButTapFailed would show the
+            // "can't read keystrokes" error banner for a normal pause.
             newState = .granted
-        case (true, false):
+        case (true, true, false):
+            newState = .granted
+        case (true, false, false):
             newState = .trustedButTapFailed
         }
 

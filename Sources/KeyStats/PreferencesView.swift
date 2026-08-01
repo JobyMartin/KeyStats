@@ -20,6 +20,7 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
     @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
     @ObservedObject private var permissions = PermissionMonitor.shared
+    @ObservedObject private var eventTap = EventTapManager.shared
     @State private var selectedTab: Tab = .appearance
     @State private var longestStreak: (days: Int, start: String, end: String)?
 
@@ -92,6 +93,7 @@ struct PreferencesView: View {
     private var generalTab: some View {
         VStack(alignment: .leading, spacing: 18) {
             displayNameSection
+            pauseTrackingSection
             accessibilitySection
             VStack(alignment: .leading, spacing: 8) {
                 Text("More settings coming soon.")
@@ -103,6 +105,31 @@ struct PreferencesView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+    }
+
+    // MARK: - Pause tracking
+
+    private var pauseTrackingSection: some View {
+        settingsCard {
+            Toggle(isOn: pauseBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pause tracking")
+                        .font(typography.label)
+                        .foregroundStyle(theme.text)
+                    Text("Stops counting keystrokes without quitting the app — same toggle as the dashboard's status pill and the menu bar dropdown.")
+                        .font(typography.caption)
+                        .foregroundStyle(theme.textFaint)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(theme.accent)
+        }
+    }
+
+    private var pauseBinding: Binding<Bool> {
+        Binding(get: { eventTap.isPaused }, set: { paused in
+            if paused { eventTap.pause() } else { eventTap.resume() }
+        })
     }
 
     // MARK: - Display name

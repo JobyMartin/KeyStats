@@ -16,6 +16,7 @@ private let dropdownRowWidth: CGFloat = 260
 struct MenuBarGreetingRow: View {
     let firstName: String?
     let launchTime: String
+    var isPaused: Bool = false
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
     @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
     @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
@@ -38,7 +39,7 @@ struct MenuBarGreetingRow: View {
                 Text(greeting)
                     .font(typography.greeting)
                     .foregroundStyle(theme.text)
-                Text("Tracking since \(launchTime)")
+                Text(isPaused ? "Paused · resume anytime" : "Tracking since \(launchTime)")
                     .font(typography.caption)
                     .foregroundStyle(theme.textFaint)
             }
