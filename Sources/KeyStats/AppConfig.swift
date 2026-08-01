@@ -21,8 +21,10 @@ enum AppConfig {
             ("Marathon", 50_000),
         ]
         /// Whether Sat/Sun must hit goal to keep a streak, before any
-        /// preference has been saved. See design §5.
-        static let countWeekendsTowardStreakDefault = true
+        /// preference has been saved. See design §5. Defaults to *off* —
+        /// weekends don't count, so missing one can't break a streak built
+        /// on weekdays.
+        static let countWeekendsTowardStreakDefault = false
         /// How far back the streak calculator is allowed to walk.
         static let streakLookbackDays = 365
     }
@@ -32,6 +34,9 @@ enum AppConfig {
         static let dashboardMinWidth: CGFloat = 560
         static let dashboardMinHeight: CGFloat = 760
         static let title = "KeyStats"
+
+        static let preferencesSize = CGSize(width: 520, height: 480)
+        static let preferencesTitle = "Preferences"
     }
 
     enum Layout {
@@ -50,6 +55,11 @@ enum AppConfig {
         /// section is a single compact row, not a hero card.
         static let goalRingSize: CGFloat = 56
         static let goalRingLineWidth: CGFloat = 7
+        /// Fixed sizing for Preferences → Appearance's theme cards — every
+        /// card gets the same height regardless of how long its name/
+        /// description happen to be, so the grid reads as even rows.
+        static let themeCardHeight: CGFloat = 108
+        static let themeCardDescriptionHeight: CGFloat = 28
     }
 
     enum Timing {
@@ -72,6 +82,7 @@ enum AppConfig {
     enum Defaults {
         static let dailyGoal = "dailyGoal"
         static let countWeekendsTowardStreak = "countWeekendsTowardStreak"
+        static let themeID = "themeID"
     }
 }
 

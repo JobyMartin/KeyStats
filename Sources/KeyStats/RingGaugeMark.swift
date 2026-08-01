@@ -9,18 +9,19 @@ import SwiftUI
 /// Bare ring — track + progress arc, no frame. Reused standalone or inside
 /// `RingGaugeMark`'s tile.
 struct RingGauge: View {
+    @Environment(\.theme) private var theme
     var progress: Double = 0.72
     var lineWidth: CGFloat = 6
-    var trackColor: Color = Theme.borderSoft
-    var progressColor: Color = Theme.accent
+    var trackColor: Color? = nil
+    var progressColor: Color? = nil
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(trackColor, lineWidth: lineWidth)
+                .stroke(trackColor ?? theme.borderSoft, lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: max(0, min(1, progress)))
-                .stroke(progressColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .stroke(progressColor ?? theme.accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
     }
@@ -29,6 +30,7 @@ struct RingGauge: View {
 /// The ring inside a small rounded "app icon" tile — used in the dashboard
 /// header next to the "KeyStats" wordmark.
 struct RingGaugeMark: View {
+    @Environment(\.theme) private var theme
     var size: CGFloat = 30
     var progress: Double = 0.72
 
@@ -36,14 +38,14 @@ struct RingGaugeMark: View {
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .fill(
                 LinearGradient(
-                    colors: [Theme.surfaceRaised, Theme.bg],
+                    colors: [theme.surfaceRaised, theme.bg],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                    .stroke(Theme.border, lineWidth: 1)
+                    .stroke(theme.border, lineWidth: 1)
             )
             .overlay(
                 RingGauge(progress: progress, lineWidth: size * 0.11)

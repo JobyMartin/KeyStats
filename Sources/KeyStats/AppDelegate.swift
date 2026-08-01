@@ -1,9 +1,18 @@
 import Cocoa
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted by the dashboard's settings gear (SwiftUI) so AppDelegate
+    /// (AppKit, owns the actual NSWindow) can open Preferences — same
+    /// indirection `showDashboard`'s menu item uses, just triggered from a
+    /// view instead of an NSMenuItem.
+    static let openPreferences = Notification.Name("KeyStats.openPreferences")
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
+    private var preferencesWindow: NSWindow?
     private var permissionPollTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -12,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupStatusItem()
         registerPowerNotifications()
+        NotificationCenter.default.addObserver(forName: .openPreferences, object: nil, queue: .main) { [weak self] _ in
+            self?.showPreferences()
+        }
 
         if EventTapManager.shared.ensureAccessibilityPermission() {
             EventTapManager.shared.start()
@@ -56,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Dashboard", action: #selector(showDashboard), keyEquivalent: "d"))
+        menu.addItem(NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit KeyStats", action: #selector(quit), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
@@ -76,6 +89,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func showPreferences() {
+        if preferencesWindow == nil {
+            let hosting = NSHostingController(rootView: PreferencesView())
+            let newWindow = NSWindow(contentViewController: hosting)
+            newWindow.title = AppConfig.Window.preferencesTitle
+            newWindow.setContentSize(NSSize(width: AppConfig.Window.preferencesSize.width, height: AppConfig.Window.preferencesSize.height))
+            newWindow.styleMask = [.titled, .closable, .miniaturizable]
+            newWindow.isReleasedWhenClosed = false
+            // Closes itself the moment focus moves anywhere else — the
+            // dashboard, another app, the menu bar — so it behaves like a
+            // lightweight panel instead of a window that's easy to lose
+            // behind other windows. `didResignKeyNotification` fires
+            // exactly on that transition.
+            NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: newWindow, queue: .main) { [weak self] _ in
+                self?.preferencesWindow?.close()
+            }
+            preferencesWindow = newWindow
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        preferencesWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quit() {
