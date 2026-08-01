@@ -4,6 +4,7 @@ import Charts
 struct DashboardView: View {
     @State private var snapshot = Storage.Snapshot()
     @State private var isVisible = false
+    @ObservedObject private var permissions = PermissionMonitor.shared
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
     @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
@@ -23,6 +24,9 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppConfig.Layout.sectionSpacing) {
                 header
+                if permissions.state != .granted {
+                    permissionBanner
+                }
                 if !Storage.shared.isAvailable {
                     errorBanner
                 }
@@ -88,6 +92,72 @@ struct DashboardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Permission banner
+
+    private var permissionBannerTitle: String {
+        switch permissions.state {
+        case .granted:
+            return ""
+        case .notTrusted:
+            return permissions.everHadPermission
+                ? "KeyStats stopped counting keystrokes"
+                : "KeyStats needs Accessibility permission"
+        case .trustedButTapFailed:
+            return "KeyStats can't read keystrokes"
+        }
+    }
+
+    private var permissionBannerMessage: String {
+        switch permissions.state {
+        case .granted:
+            return ""
+        case .notTrusted:
+            return permissions.everHadPermission
+                ? "Accessibility permission was lost — this usually happens after the app is updated. If KeyStats already appears enabled in the list below, switch it off and back on: select it, press \u{2212}, then press + and choose KeyStatsApp again."
+                : "Grant Accessibility access so KeyStats can count your keystrokes."
+        case .trustedButTapFailed:
+            return "macOS reports permission as granted but refused to start capturing keystrokes. Remove KeyStats from the list below, add it back, then quit and reopen KeyStats."
+        }
+    }
+
+    private var permissionBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(permissionBannerTitle, systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+            Text(permissionBannerMessage)
+                .font(.caption)
+                .foregroundStyle(theme.textDim)
+            HStack(spacing: 8) {
+                Button {
+                    permissions.openAccessibilitySettings()
+                } label: {
+                    Text("Open Accessibility Settings")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(theme.bg)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    permissions.copyResetCommand()
+                } label: {
+                    Text("Copy reset command")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(theme.bad)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(theme.bad.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .foregroundStyle(theme.bad)
     }
 
     // MARK: - Error banner

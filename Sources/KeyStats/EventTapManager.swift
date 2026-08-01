@@ -22,6 +22,9 @@ final class EventTapManager {
 
     private init() {}
 
+    /// Whether a live event tap currently exists.
+    var isRunning: Bool { eventTap != nil }
+
     // MARK: - Permission
 
     /// Prompts the user for Accessibility access if not already granted.
@@ -34,10 +37,11 @@ final class EventTapManager {
 
     // MARK: - Tap lifecycle
 
-    func start() {
+    @discardableResult
+    func start() -> Bool {
         // Idempotent: calling twice would otherwise create a second tap
         // that double-counts every keystroke and leaks the first one.
-        guard eventTap == nil else { return }
+        guard eventTap == nil else { return true }
         assert(Thread.isMainThread, "EventTapManager.start() must run on the main thread")
 
         let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
@@ -58,8 +62,9 @@ final class EventTapManager {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("Failed to create event tap. Is Accessibility permission granted?")
-            return
+            NSLog("KeyStats: failed to create event tap. Is Accessibility permission granted?")
+            PermissionMonitor.shared.refresh()
+            return false
         }
 
         eventTap = tap
@@ -69,6 +74,9 @@ final class EventTapManager {
 
         startObservingFrontmostApp()
         startWatchdog()
+        UserDefaults.standard.set(true, forKey: AppConfig.Defaults.hasEverTracked)
+        PermissionMonitor.shared.refresh()
+        return true
     }
 
     func stop() {
@@ -90,6 +98,7 @@ final class EventTapManager {
         eventTap = nil
         runLoopSource = nil
         heldModifiers.removeAll()
+        PermissionMonitor.shared.refresh()
     }
 
     /// Called after sleep/wake, where a tap can end up disabled without any
@@ -107,6 +116,7 @@ final class EventTapManager {
         watchdog?.invalidate()
         watchdog = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.tapWatchdog, repeats: true) { [weak self] _ in
             self?.reenableIfNeeded()
+            PermissionMonitor.shared.refresh()
         }
     }
 
@@ -148,6 +158,7 @@ final class EventTapManager {
             // so our held-modifier state is stale. Drop it rather than risk
             // every future combo being miscounted forever.
             heldModifiers.removeAll()
+            PermissionMonitor.shared.refresh()
             return
         }
 

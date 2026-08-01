@@ -16,6 +16,7 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
+    @ObservedObject private var permissions = PermissionMonitor.shared
     @State private var selectedTab: Tab = .appearance
 
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
@@ -68,15 +69,57 @@ struct PreferencesView: View {
     // MARK: - General
 
     private var generalTab: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("More settings coming soon.")
-                .font(.system(size: 13))
-                .foregroundStyle(theme.textDim)
-            Text("Display name, launch at login, and the frontmost-app toggle land here next.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(theme.textFaint)
+        VStack(alignment: .leading, spacing: 18) {
+            accessibilitySection
+            VStack(alignment: .leading, spacing: 8) {
+                Text("More settings coming soon.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.textDim)
+                Text("Display name, launch at login, and the frontmost-app toggle land here next.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(theme.textFaint)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+    }
+
+    private var accessibilitySection: some View {
+        let granted = permissions.state == .granted
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Accessibility")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(theme.text)
+                Spacer()
+                Text(granted ? "Granted" : "Not granted")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(granted ? theme.good : theme.bad)
+            }
+            if !granted {
+                Text("KeyStats can't count keystrokes without Accessibility access. If it already appears enabled in the list, switch it off and back on: select it, press \u{2212}, then press + and re-add KeyStatsApp.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(theme.textFaint)
+                Button {
+                    permissions.openAccessibilitySettings()
+                } label: {
+                    Text("Open Accessibility Settings")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.bg)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(theme.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(theme.border, lineWidth: 1)
+        )
     }
 
     // MARK: - Appearance
