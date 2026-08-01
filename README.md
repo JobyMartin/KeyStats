@@ -35,50 +35,61 @@ keylogger that could leak passwords if the DB were ever read by someone else.
 
 ## Running it
 
+There's no downloadable build yet (see "Getting a real `.app`" below), so for
+now you build it yourself. Two ways to do that:
+
+### Option A — the packaged `.app` (recommended)
+
+This builds a real `/Applications/KeyStatsApp.app`, the same way a
+downloadable release eventually will work: proper menu bar icon, survives
+reboots, and — unlike ad-hoc builds — keeps its Accessibility permission
+across rebuilds.
+
+```bash
+cd KeyStats
+./make-signing-cert.sh   # one-time per machine: creates a local "KeyStats Local Signing"
+                         # identity in your keychain, so rebuilds don't lose Accessibility
+                         # permission (ad-hoc signing has no stable identity, so macOS keys
+                         # the grant to the binary's hash, which changes on every build)
+./build-app.sh           # builds, signs, installs to /Applications, and launches it
+```
+
+Re-run `./build-app.sh` any time you pull new changes — it's idempotent,
+backs up the SQLite database first, and quits/relaunches the running app for
+you. `./make-signing-cert.sh` only ever needs to run once (it's a no-op if
+the identity already exists); the one exception is the very first time you
+switch an existing ad-hoc install over to this signed one, which still needs
+one final manual Accessibility re-grant.
+
+### Option B — quick dev loop
+
 ```bash
 cd KeyStats
 swift build -c release
 swift run -c release
 ```
 
-Or open the folder in Xcode (`File > Open` on `Package.swift`) and hit Run —
-this is the easier path if you want to attach a debugger or edit the UI live.
+Or open the folder in Xcode (`File > Open` on `Package.swift`) and hit Run.
+Faster to iterate with, but permission tends to attach to the parent process
+(`Terminal`/`Xcode`) rather than a stable app identity, so it's easy to lose
+between runs — use Option A if you want the grant to actually stick.
 
-### First launch: Accessibility permission
+### Accessibility permission
 
 macOS requires Accessibility permission for any app that wants to observe
 keystrokes globally (this is the same permission used by apps like Rectangle
-or Karabiner). On first launch:
+or Karabiner). On first launch a system prompt appears — click **Open System
+Settings**, go to **Privacy & Security → Accessibility**, and enable the
+toggle for **KeyStats** (or `Terminal`/`Xcode` if running via `swift run`).
+The app polls for permission every 2 seconds and starts capturing
+automatically once granted — no need to relaunch.
 
-1. A system prompt will appear — click **Open System Settings**.
-2. Go to **Privacy & Security → Accessibility**.
-3. Enable the toggle for **KeyStats** (or for `Terminal`/`Xcode` if you're
-   running it via `swift run` from there — in dev builds the permission
-   often attaches to the parent process rather than the binary itself).
-4. The app polls for permission every 2 seconds and starts capturing
-   automatically once granted — no need to relaunch.
+If permission is ever lost or was never granted, the dashboard shows a
+banner, the menu bar icon changes, and Preferences → General shows the
+status live — each with a button straight to the Accessibility pane and, if
+needed, instructions to remove and re-add KeyStats there:
 
-If permission is ever lost or not granted, the dashboard shows a banner
-(and the menu bar icon changes) with a button straight to the Accessibility
-pane and, if needed, instructions to remove and re-add KeyStats there.
-
-### Packaged `.app` builds and Accessibility permission
-
-`build-app.sh` used to sign ad-hoc, which has no stable identity — macOS
-keys the Accessibility grant to the binary's CDHash, so it changed (and the
-grant was silently lost) on every rebuild. It now signs with a stable local
-identity instead:
-
-```bash
-./make-signing-cert.sh   # one-time: creates "KeyStats Local Signing" in your keychain
-./build-app.sh
-```
-
-`make-signing-cert.sh` only needs to run once per machine (it's a no-op if
-the identity already exists). After switching from ad-hoc to this signed
-identity, Accessibility needs to be re-granted **one more time** — every
-rebuild after that keeps the grant, since the signing identity (and thus the
-designated requirement TCC checks) no longer changes.
+![dashboard accessibility banner](screenshots/redesign-v1/dashboard-no-assc-banner.png)
 
 ### Using it
 
@@ -87,13 +98,17 @@ Click it → **Open Dashboard** to see your stats, **Preferences…** for theme/
 goal settings, or **Quit KeyStats** to stop tracking and exit. The dashboard's
 gear icon opens the same Preferences window.
 
-Preferences has an Appearance tab (11 dark themes, click a card to switch —
-same list as `znotes/themes.json`) and a Goals tab (daily goal slider +
-presets, and a "count weekends toward streak" toggle, off by default so a
-quiet Saturday or Sunday can't break a streak built on weekdays). Changing
-the goal only ever affects *today* — past days keep whatever `goal_met` they
-were written with, permanently; raising the goal above what you've already
-typed today un-earns just today's credit, and lowering it back re-earns it.
+Preferences has a General tab (Accessibility permission status, with the
+same "Open Accessibility Settings" button as the dashboard banner), an
+Appearance tab (11 dark themes, click a card to switch — same list as
+`znotes/themes.json`), and a Goals tab (daily goal slider + presets, and a
+"count weekends toward streak" toggle, off by default so a quiet Saturday or
+Sunday can't break a streak built on weekdays). Changing the goal only ever
+affects *today* — past days keep whatever `goal_met` they were written with,
+permanently; raising the goal above what you've already typed today un-earns
+just today's credit, and lowering it back re-earns it.
+
+![preferences accessibility status](screenshots/redesign-v1/dashboard-no-assc-preferences-card.png)
 
 ## Customizing it
 
@@ -136,6 +151,11 @@ land in a different `defaults` domain — the SwiftPM executable's, not
   for the rules (append-only steps, always provide a `DEFAULT` for `NOT
   NULL` columns).
 
-## Packaging as a real .app (to come)
+## Getting a real `.app` without building it yourself
 
-`swift run` is fine and all, but I eventually want a proper app...so stay tuned
+There's no downloadable release yet — for now, building it yourself via
+`./make-signing-cert.sh` + `./build-app.sh` (see "Running it" above) is the
+only way to get the packaged `.app`. A proper downloadable build (signed
+with a real Developer ID and notarized, rather than the local self-signed
+identity these scripts use) is something I'd like to put together
+eventually — hopefully stay tuned.
