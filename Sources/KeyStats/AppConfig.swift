@@ -21,8 +21,10 @@ enum AppConfig {
             ("Marathon", 50_000),
         ]
         /// Whether Sat/Sun must hit goal to keep a streak, before any
-        /// preference has been saved. See design §5.
-        static let countWeekendsTowardStreakDefault = true
+        /// preference has been saved. See design §5. Defaults to *off* —
+        /// weekends don't count, so missing one can't break a streak built
+        /// on weekdays.
+        static let countWeekendsTowardStreakDefault = false
         /// How far back the streak calculator is allowed to walk.
         static let streakLookbackDays = 365
     }
