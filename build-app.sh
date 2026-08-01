@@ -14,6 +14,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 BUNDLE_ID="com.joby.KeyStatsApp"
 APP_NAME="KeyStatsApp"
+SIGN_IDENTITY="KeyStats Local Signing"
 PRODUCT="KeyStats"          # SwiftPM executable target/product name
 DEPLOY_TARGET="14.0"
 ARCH="arm64"                # this Mac is arm64 and has no Xcode; see README
@@ -53,18 +54,27 @@ chmod 755 "$STAGE/Contents/MacOS/$APP_NAME"
 plutil -lint "$STAGE/Contents/Info.plist"
 plutil -lint "$REPO/KeyStats.entitlements"
 
-# ---- 3. sign ad hoc, with the sandbox entitlements ---------------------
-# --sign - is ad-hoc (no Developer ID, no Team ID) — matches the original
-# July 1 build (Signature=adhoc, TeamIdentifier=not set).
-codesign --force --sign - \
+# ---- 3. sign with a stable local identity ------------------------------
+# Ad-hoc signing (--sign -) has no stable identity, so macOS keys the
+# Accessibility grant to the binary's CDHash — which changes on every
+# rebuild, silently losing the grant every time. Signing with a real
+# (self-signed is fine) identity gives the app a stable designated
+# requirement instead, so the grant survives rebuilds.
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
+  echo "FATAL: signing identity '$SIGN_IDENTITY' not found in your keychain." >&2
+  echo "       Run ./make-signing-cert.sh once to create it, then re-run this script." >&2
+  exit 1
+fi
+
+codesign --force --sign "$SIGN_IDENTITY" \
          --identifier "$BUNDLE_ID" \
          --entitlements "$REPO/KeyStats.entitlements" \
          "$STAGE"
 
 # ---- 4. verify before touching /Applications ---------------------------
 codesign --verify --deep --strict --verbose=2 "$STAGE"
-codesign -d --entitlements - --xml "$STAGE" 2>/dev/null \
-  | grep -q 'com.apple.security.app-sandbox' || {
+ENTITLEMENTS_XML="$(codesign -d --entitlements - --xml "$STAGE" 2>/dev/null)"
+grep -q 'com.apple.security.app-sandbox' <<< "$ENTITLEMENTS_XML" || {
   echo "FATAL: sandbox entitlement missing from the built bundle." >&2
   echo "       Installing this would silently switch the app to the WRONG,\
  empty database. Refusing to continue." >&2
@@ -74,6 +84,18 @@ BUILT_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STAGE/Conte
 [[ "$BUILT_ID" == "$BUNDLE_ID" ]] || {
   echo "FATAL: bundle id is '$BUILT_ID', expected '$BUNDLE_ID'." >&2
   echo "       Installing this would create a NEW, empty database container." >&2
+  exit 1
+}
+# Captured into a variable rather than piped live into grep -q: grep -q
+# exits the instant it finds a match and closes its end of the pipe, which
+# can SIGPIPE-kill codesign mid-write. Under `set -o pipefail` that non-zero
+# SIGPIPE exit status wins over grep's success, failing this check even when
+# the signature is correct.
+SIGN_INFO="$(codesign -dvvv "$STAGE" 2>&1)"
+grep -q "Authority=$SIGN_IDENTITY" <<< "$SIGN_INFO" || {
+  echo "FATAL: built bundle is not signed with '$SIGN_IDENTITY'." >&2
+  echo "       Installing an ad-hoc-signed build would lose Accessibility" >&2
+  echo "       permission on every future rebuild. Refusing to continue." >&2
   exit 1
 }
 
@@ -108,10 +130,16 @@ rm -rf "$DEST.old"
 
 echo "==> installed $DEST"
 echo "    CDHash: $(codesign -dvvv "$DEST" 2>&1 | awk -F= '/^CDHash/{print $2}')"
+echo "    Designated requirement: $(codesign -d -r- "$DEST" 2>&1 | tail -n 1)"
 echo
-echo "!! The ad-hoc signature changed, so macOS treats this as a different"
-echo "!! program. Accessibility permission will almost certainly need to be"
-echo "!! re-granted, or the app will run with NO keystrokes counted:"
+echo "Signed with '$SIGN_IDENTITY' — this identity is stable across rebuilds,"
+echo "so Accessibility permission should now survive future updates without"
+echo "being re-granted. (If this is the FIRST build since switching away from"
+echo "ad-hoc signing, one final re-grant is still needed this one time.)"
+echo
+echo "If KeyStats ever does stop counting keystrokes after an update anyway,"
+echo "the app's own dashboard/menu bar will show a warning with instructions."
+echo "Manual fix, if needed:"
 echo "     System Settings > Privacy & Security > Accessibility"
 echo "       1. select KeyStatsApp, press '-' to remove the old entry"
 echo "       2. press '+', choose /Applications/$APP_NAME.app, enable it"
