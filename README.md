@@ -108,8 +108,6 @@ affects *today* — past days keep whatever `goal_met` they were written with,
 permanently; raising the goal above what you've already typed today un-earns
 just today's credit, and lowering it back re-earns it.
 
-![preferences accessibility status](screenshots/redesign-v1/dashboard-no-assc-preferences-card.png)
-
 ## Customizing it
 
 Every tunable number in the app — window size, the daily goal's default/
