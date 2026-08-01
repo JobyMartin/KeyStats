@@ -58,6 +58,28 @@ or Karabiner). On first launch:
 4. The app polls for permission every 2 seconds and starts capturing
    automatically once granted — no need to relaunch.
 
+If permission is ever lost or not granted, the dashboard shows a banner
+(and the menu bar icon changes) with a button straight to the Accessibility
+pane and, if needed, instructions to remove and re-add KeyStats there.
+
+### Packaged `.app` builds and Accessibility permission
+
+`build-app.sh` used to sign ad-hoc, which has no stable identity — macOS
+keys the Accessibility grant to the binary's CDHash, so it changed (and the
+grant was silently lost) on every rebuild. It now signs with a stable local
+identity instead:
+
+```bash
+./make-signing-cert.sh   # one-time: creates "KeyStats Local Signing" in your keychain
+./build-app.sh
+```
+
+`make-signing-cert.sh` only needs to run once per machine (it's a no-op if
+the identity already exists). After switching from ad-hoc to this signed
+identity, Accessibility needs to be re-granted **one more time** — every
+rebuild after that keeps the grant, since the signing identity (and thus the
+designated requirement TCC checks) no longer changes.
+
 ### Using it
 
 The app has no Dock icon — look for the keyboard icon in your menu bar.
