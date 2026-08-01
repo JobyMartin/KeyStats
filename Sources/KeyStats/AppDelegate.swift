@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var preferencesWindow: NSWindow?
     private var permissionPollTimer: Timer?
     private var lastMenuPermissionState: PermissionMonitor.State?
+    private lazy var lastFontSignature = Self.fontSignature()
     private let launchedAt = Date()
     private static let launchTimeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -31,6 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerPowerNotifications()
         NotificationCenter.default.addObserver(forName: .openPreferences, object: nil, queue: .main) { [weak self] _ in
             self?.showPreferences()
+        }
+        // The dropdown's hosted rows measure their own `fittingSize` once,
+        // at menu-build time (see makeMenuBarHostingItem), so a font/size
+        // change made in Preferences needs a full menu rebuild to actually
+        // resize — menuWillOpen only refreshes row *content*, not layout.
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.rebuildMenuIfFontChanged()
         }
 
         EventTapManager.shared.ensureAccessibilityPermission()
@@ -113,6 +121,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem(title: "Quit KeyStats", symbol: "power", action: #selector(quit), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
+    }
+
+    private static func fontSignature() -> String {
+        "\(UserSettings.fontScale.rawValue)|\(UserSettings.fontPreset.id)"
+    }
+
+    /// `UserDefaults.didChangeNotification` fires for ANY defaults write,
+    /// not just the font keys, so this filters down to an actual change
+    /// before paying for a menu rebuild.
+    private func rebuildMenuIfFontChanged() {
+        let signature = Self.fontSignature()
+        guard signature != lastFontSignature else { return }
+        lastFontSignature = signature
+        rebuildMenu(permissionState: PermissionMonitor.shared.state)
     }
 
     private func menuItem(title: String, symbol: String, action: Selector, keyEquivalent: String) -> NSMenuItem {

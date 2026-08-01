@@ -148,9 +148,57 @@ struct AppTheme: Identifiable, Equatable {
         series: [Color(hex: 0xB9A15B), Color(hex: 0x7FA47A), Color(hex: 0x8EA7B8), Color(hex: 0x9A8CB8)]
     )
 
+    // Added from a further externally-generated batch (znotes/themes.json).
+    // `borderSoft` derived the same way as the seven above: a 60/40 blend of
+    // `surface`/`border` per channel. Obsidian is dark like every theme
+    // before it; Canvas, Linen, and Blueprint are light palettes — the first
+    // in the app. That's a direct reversal of design.md §1's "Dark only —
+    // no light theme, ever (explicit product decision, not an oversight)."
+    // Added anyway per explicit user request (matches the open
+    // `znotes/todo.md` item "a couple light themes because those people
+    // exist") — design.md needs updating to reflect this is no longer true,
+    // and light-theme-specific issues (contrast, any place light/dark is
+    // assumed rather than read from `theme`) haven't been audited yet.
+    static let obsidian = AppTheme(
+        id: "obsidian", name: "Obsidian", description: "Deep focus begins where the light ends.",
+        bg: Color(hex: 0x050506), surface: Color(hex: 0x0B0C0E), surfaceRaised: Color(hex: 0x111317),
+        border: Color(hex: 0x1D2127), borderSoft: Color(hex: 0x121418),
+        text: Color(hex: 0xF4F6F8), textDim: Color(hex: 0x9EA6B4), textFaint: Color(hex: 0x5B6270),
+        accent: Color(hex: 0x7DAFFF), good: Color(hex: 0x63D7A0), bad: Color(hex: 0xF26D6D),
+        series: [Color(hex: 0x7DAFFF), Color(hex: 0xA78BFA), Color(hex: 0x63D7A0), Color(hex: 0xF0C76A)]
+    )
+
+    static let canvas = AppTheme(
+        id: "canvas", name: "Canvas", description: "A blank page. Endless possibilities.",
+        bg: Color(hex: 0xF8F7F3), surface: Color(hex: 0xF1EFEA), surfaceRaised: Color(hex: 0xE8E5DF),
+        border: Color(hex: 0xD6D2CA), borderSoft: Color(hex: 0xE6E3DD),
+        text: Color(hex: 0x23262D), textDim: Color(hex: 0x5F6673), textFaint: Color(hex: 0x8C939F),
+        accent: Color(hex: 0x4C8BF5), good: Color(hex: 0x4FA56B), bad: Color(hex: 0xD45C5C),
+        series: [Color(hex: 0x4C8BF5), Color(hex: 0x7B61FF), Color(hex: 0x4FA56B), Color(hex: 0xD89A36)]
+    )
+
+    static let linen = AppTheme(
+        id: "linen", name: "Linen", description: "Soft light. Quiet thoughts. Lasting focus.",
+        bg: Color(hex: 0xF5F2EC), surface: Color(hex: 0xECE7DF), surfaceRaised: Color(hex: 0xE2DCD3),
+        border: Color(hex: 0xCEC6BB), borderSoft: Color(hex: 0xE0DAD1),
+        text: Color(hex: 0x2B2926), textDim: Color(hex: 0x666158), textFaint: Color(hex: 0x938A7D),
+        accent: Color(hex: 0xB7853F), good: Color(hex: 0x5C9B67), bad: Color(hex: 0xC95A58),
+        series: [Color(hex: 0xB7853F), Color(hex: 0x7F9FB5), Color(hex: 0x5C9B67), Color(hex: 0x9A82C8)]
+    )
+
+    static let blueprint = AppTheme(
+        id: "blueprint", name: "Blueprint", description: "Designed with clarity. Built with precision.",
+        bg: Color(hex: 0xF3F7FB), surface: Color(hex: 0xEAF0F6), surfaceRaised: Color(hex: 0xDFE8F1),
+        border: Color(hex: 0xC8D4E2), borderSoft: Color(hex: 0xDCE5EE),
+        text: Color(hex: 0x1F2B38), textDim: Color(hex: 0x5B6B7D), textFaint: Color(hex: 0x8795A5),
+        accent: Color(hex: 0x3F7AE0), good: Color(hex: 0x4D9C71), bad: Color(hex: 0xD35D5D),
+        series: [Color(hex: 0x3F7AE0), Color(hex: 0x5FA9DD), Color(hex: 0x4D9C71), Color(hex: 0x8A74D8)]
+    )
+
     static let all: [AppTheme] = [
         backlit, cinder, nocturne, alpine,
         drizzle, afterglow, midnight, timberline, prelude, velocity, stillness,
+        obsidian, canvas, linen, blueprint,
     ]
 
     static func theme(forID id: String) -> AppTheme {

@@ -103,14 +103,16 @@ window.
 Preferences has a General tab (a display name that shows up in the menu bar
 greeting, plus Accessibility permission status with the same "Open
 Accessibility Settings" button as the dashboard banner), an Appearance tab
-(11 dark themes, click a card to switch — same list as `znotes/themes.json`),
-and a Goals tab (daily goal slider + presets, a "count weekends toward
-streak" toggle off by default so a quiet Saturday or Sunday can't break a
-streak built on weekdays, and your longest streak with its date range).
-Changing the goal only ever affects *today* — past days keep whatever
-`goal_met` they were written with, permanently; raising the goal above what
-you've already typed today un-earns just today's credit, and lowering it
-back re-earns it.
+(a font-size scale from XS to Large, a font picker with 8 paired UI+mono
+presets — 3 of them bundled developer fonts — and 15 themes, 12 dark and 3
+light, click a card to switch — same list as `znotes/themes.json`), and a
+Goals tab (daily goal slider + presets, a "count weekends toward streak"
+toggle off by default so a quiet Saturday or Sunday can't break a streak
+built on weekdays, and your longest streak with its date range). Changing
+the goal only ever affects *today* — past days keep whatever `goal_met`
+they were written with, permanently; raising the goal above what you've
+already typed today un-earns just today's credit, and lowering it back
+re-earns it.
 
 ## Customizing it
 
@@ -119,16 +121,21 @@ range/presets, refresh intervals, chart sizing, query limits — lives in one
 file, `Sources/KeyStats/AppConfig.swift`. Edit a constant there and rebuild
 rather than hunting a number down across files.
 
-The daily goal and weekend toggle are also reachable via `defaults write` if
-you'd rather script it than use Preferences:
+The daily goal, weekend toggle, font size, and font preset are also
+reachable via `defaults write` if you'd rather script them than use
+Preferences:
 
 ```bash
 defaults write com.joby.KeyStatsApp dailyGoal 20000
 defaults write com.joby.KeyStatsApp countWeekendsTowardStreak -bool true
+defaults write com.joby.KeyStatsApp fontScale large
+defaults write com.joby.KeyStatsApp fontPresetID modern-dev
 
-# back to the defaults (15,000 / weekends don't count)
+# back to the defaults (15,000 / weekends don't count / Regular / Default)
 defaults delete com.joby.KeyStatsApp dailyGoal
 defaults delete com.joby.KeyStatsApp countWeekendsTowardStreak
+defaults delete com.joby.KeyStatsApp fontScale
+defaults delete com.joby.KeyStatsApp fontPresetID
 ```
 
 (If you're running via `swift run` rather than the packaged `.app`, these
