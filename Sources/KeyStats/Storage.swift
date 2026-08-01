@@ -420,6 +420,35 @@ final class Storage {
         queue.sync { self.flushOnQueue() }
     }
 
+    /// Called when the user changes their daily goal in Preferences. Past
+    /// days' `goal_met` is permanent once written (see
+    /// `migrateV1_addGoalMetColumn`'s doc comment) and untouched here —
+    /// this only ever rewrites *today's* row, recomputed from scratch
+    /// against the new goal. That's deliberate: today isn't "the past" yet,
+    /// so raising the goal above what's already been typed today should
+    /// undo today's credit, and lowering it back should be able to re-grant
+    /// it — neither is true for any day that's already closed out.
+    func recalculateTodayGoalMet(goal: Int) {
+        guard isAvailable else { return }
+        queue.async { [weak self] in
+            guard let self, let db = self.db else { return }
+            self.flushOnQueue() // today's in-memory buffer must land first, or this checks a stale total_keys.
+            let today = DayKey.string(from: Date())
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(
+                db,
+                "UPDATE daily_totals SET goal_met = CASE WHEN total_keys >= ? THEN 1 ELSE 0 END WHERE day = ?;",
+                -1, &stmt, nil
+            ) == SQLITE_OK else { return }
+            sqlite3_bind_int(stmt, 1, Int32(goal))
+            sqlite3_bind_text(stmt, 2, today, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) != SQLITE_DONE {
+                NSLog("KeyStats: recalculateTodayGoalMet failed: %s", sqlite3_errmsg(db))
+            }
+        }
+    }
+
     /// MUST be called already running on `queue`.
     private func prepareStatementsIfNeeded() -> Bool {
         guard !statementsPrepared, let db else { return statementsPrepared }
