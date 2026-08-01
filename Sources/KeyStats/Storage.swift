@@ -714,6 +714,23 @@ final class Storage {
         }
     }
 
+    /// All-time "yyyy-MM-dd" days with `goal_met = 1`, unlike
+    /// `Snapshot.streakEligibleDays` which is capped to
+    /// `AppConfig.Goal.streakLookbackDays`. Kept as its own entry point
+    /// rather than folded into `Snapshot` — Preferences → Goals is the only
+    /// caller and shouldn't pay for the other nine dashboard readers.
+    func allMetGoalDays(completion: @escaping (Set<String>) -> Void) {
+        guard isAvailable else {
+            DispatchQueue.main.async { completion([]) }
+            return
+        }
+        queue.async {
+            self.flushOnQueue()
+            let days = self._allMetGoalDays()
+            DispatchQueue.main.async { completion(days) }
+        }
+    }
+
     /// Today's `total_keys`, for the menu-bar dropdown's stat row. A
     /// dedicated single-row lookup rather than `snapshot()` — the dropdown
     /// wants this on every `menuWillOpen`, and running all ten dashboard
@@ -867,6 +884,22 @@ final class Storage {
         // "yyyy-MM-dd" — lexicographic order matches date order.
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, cutoff, -1, SQLITE_TRANSIENT)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let raw = sqlite3_column_text(stmt, 0) else { continue }
+                result.insert(String(cString: raw))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return result
+    }
+
+    /// All-time equivalent of `_metGoalDaysSince` — no cutoff. See
+    /// `allMetGoalDays(completion:)`.
+    private func _allMetGoalDays() -> Set<String> {
+        var result: Set<String> = []
+        var stmt: OpaquePointer?
+        let sql = "SELECT day FROM daily_totals WHERE goal_met = 1;"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             while sqlite3_step(stmt) == SQLITE_ROW {
                 guard let raw = sqlite3_column_text(stmt, 0) else { continue }
                 result.insert(String(cString: raw))

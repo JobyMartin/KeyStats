@@ -19,6 +19,7 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.displayName) private var displayName = ""
     @ObservedObject private var permissions = PermissionMonitor.shared
     @State private var selectedTab: Tab = .appearance
+    @State private var longestStreak: (days: Int, start: String, end: String)?
 
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
 
@@ -227,7 +228,59 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 18) {
             dailyGoalEditor
             weekendToggle
+            longestStreakSection
         }
+        .task { loadLongestStreak() }
+        .onChange(of: countWeekendsTowardStreak) { _, _ in loadLongestStreak() }
+    }
+
+    // MARK: - Longest streak
+
+    private var longestStreakSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Longest streak")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(theme.text)
+            if let longestStreak {
+                Text("\(longestStreak.days) day\(longestStreak.days == 1 ? "" : "s")")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.accent)
+                Text(Self.streakRangeLabel(longestStreak))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(theme.textFaint)
+            } else {
+                Text("No streak yet")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.textDim)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(theme.border, lineWidth: 1)
+        )
+    }
+
+    private func loadLongestStreak() {
+        let countWeekends = countWeekendsTowardStreak
+        Storage.shared.allMetGoalDays { days in
+            longestStreak = StreakCalculator.longestStreak(metGoalDays: days, countWeekends: countWeekends)
+        }
+    }
+
+    /// "Mar 4 – Apr 5" (or just "Mar 4" for a one-day streak) from a
+    /// `StreakCalculator.longestStreak` result's raw "yyyy-MM-dd" bounds.
+    private static func streakRangeLabel(_ streak: (days: Int, start: String, end: String)) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        guard let startDate = DayKey.date(from: streak.start) else { return "\(streak.start) – \(streak.end)" }
+        let startLabel = formatter.string(from: startDate)
+        if streak.start == streak.end { return startLabel }
+        guard let endDate = DayKey.date(from: streak.end) else { return "\(streak.start) – \(streak.end)" }
+        return "\(startLabel) – \(formatter.string(from: endDate))"
     }
 
     private var weekendToggle: some View {

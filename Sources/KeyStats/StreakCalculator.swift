@@ -58,4 +58,60 @@ enum StreakCalculator {
 
         return streak
     }
+
+    /// The longest run of consecutive met-goal days across all of
+    /// `metGoalDays`, unlike `currentStreak` which only walks backward from
+    /// today. Unlike `currentStreak`, there's no "today is still in
+    /// progress" exemption here — a streak this returns is made entirely of
+    /// days that were already earned.
+    ///
+    /// - Parameters:
+    ///   - metGoalDays: all-time "yyyy-MM-dd" days with `goal_met = 1`
+    ///     (`Storage.allMetGoalDays`), not the 365-day-capped
+    ///     `Snapshot.streakEligibleDays`.
+    ///   - countWeekends: when false, Saturday/Sunday are skipped entirely —
+    ///     a run that spans a weekend continues uninterrupted, matching
+    ///     `currentStreak`'s semantics (design §5).
+    /// - Returns: nil when `metGoalDays` is empty; otherwise the streak
+    ///   length and its "yyyy-MM-dd" start/end days.
+    static func longestStreak(
+        metGoalDays: Set<String>,
+        countWeekends: Bool
+    ) -> (days: Int, start: String, end: String)? {
+        guard let earliestKey = metGoalDays.min(),
+              let earliest = DayKey.date(from: earliestKey) else { return nil }
+
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        var cursor = cal.startOfDay(for: earliest)
+
+        var best: (days: Int, start: String, end: String)?
+        var runLength = 0
+        var runStart: String?
+
+        while cursor <= today {
+            defer { cursor = cal.date(byAdding: .day, value: 1, to: cursor) ?? today.addingTimeInterval(86400) }
+
+            if !countWeekends {
+                let weekday = cal.component(.weekday, from: cursor) // 1 = Sunday, 7 = Saturday
+                if weekday == 1 || weekday == 7 {
+                    continue // skips without breaking a run in progress
+                }
+            }
+
+            let key = DayKey.string(from: cursor)
+            if metGoalDays.contains(key) {
+                if runStart == nil { runStart = key }
+                runLength += 1
+                if best == nil || runLength > best!.days {
+                    best = (days: runLength, start: runStart!, end: key)
+                }
+            } else {
+                runLength = 0
+                runStart = nil
+            }
+        }
+
+        return best
+    }
 }
