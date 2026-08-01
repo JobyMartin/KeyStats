@@ -80,7 +80,7 @@ final class Storage {
             return
         }
 
-        sqlite3_busy_timeout(db, 3_000)
+        sqlite3_busy_timeout(db, AppConfig.Timing.sqliteBusyTimeoutMs)
         exec("PRAGMA journal_mode = WAL;")
         exec("PRAGMA synchronous = NORMAL;") // safe with WAL
 
@@ -287,7 +287,7 @@ final class Storage {
 
     private func startFlushTimer() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
+        t.schedule(deadline: .now() + AppConfig.Timing.dbFlush, repeating: AppConfig.Timing.dbFlush, leeway: .seconds(1))
         t.setEventHandler { [weak self] in self?.flushOnQueue() }
         t.resume()
         flushTimer = t
@@ -570,7 +570,7 @@ final class Storage {
 
     // MARK: - Readers (all assume they're already on `queue`; see rule 1)
 
-    private func _topKeys(limit: Int = 15) -> [KeyCount] {
+    private func _topKeys(limit: Int = AppConfig.Query.topKeysLimit) -> [KeyCount] {
         _readPairs("SELECT key_name, count FROM key_counts ORDER BY count DESC LIMIT \(limit);")
             .map { KeyCount(keyName: $0.0, count: $0.1) }
     }
@@ -580,18 +580,18 @@ final class Storage {
             .map { KeyCount(keyName: $0.0, count: $0.1) }
     }
 
-    private func _topKeybinds(limit: Int = 15) -> [ComboCount] {
+    private func _topKeybinds(limit: Int = AppConfig.Query.topKeybindsLimit) -> [ComboCount] {
         _readPairs("SELECT combo, count FROM keybind_counts ORDER BY count DESC LIMIT \(limit);")
             .map { ComboCount(combo: $0.0, count: $0.1) }
     }
 
-    private func _topApps(limit: Int = 10) -> [AppCount] {
+    private func _topApps(limit: Int = AppConfig.Query.topAppsLimit) -> [AppCount] {
         _readPairs("SELECT app_name, count FROM app_activity ORDER BY count DESC LIMIT \(limit);")
             .map { AppCount(appName: $0.0, count: $0.1) }
     }
 
     private func _last24Hours() -> [HourBucket] {
-        let cutoff = Int64(Date().timeIntervalSince1970) - 24 * 3600
+        let cutoff = Int64(Date().timeIntervalSince1970) - Int64(AppConfig.Query.hourlyWindowHours) * 3600
         var result: [HourBucket] = []
         var stmt: OpaquePointer?
         let sql = "SELECT hour_bucket, count FROM hourly_activity WHERE hour_bucket >= ? ORDER BY hour_bucket ASC;"
@@ -611,7 +611,7 @@ final class Storage {
     private func _lastSevenDays() -> [DayTotal] {
         let cal = Calendar.current
         let today = Date()
-        let days: [String] = (0..<7).reversed().compactMap { offset in
+        let days: [String] = (0..<AppConfig.Query.weeklyDays).reversed().compactMap { offset in
             guard let date = cal.date(byAdding: .day, value: -offset, to: today) else { return nil }
             return DayKey.string(from: date)
         }

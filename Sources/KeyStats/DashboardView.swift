@@ -6,11 +6,11 @@ struct DashboardView: View {
     @State private var isVisible = false
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
-    @State private var refreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: AppConfig.Layout.sectionSpacing) {
                 header
                 if !Storage.shared.isAvailable {
                     errorBanner
@@ -23,11 +23,11 @@ struct DashboardView: View {
                 keybindsSection
                 appsSection
             }
-            .padding(22)
+            .padding(AppConfig.Layout.contentPadding)
         }
         .background(Theme.bg)
         .scrollContentBackground(.hidden)
-        .frame(minWidth: 560, minHeight: 760)
+        .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .onAppear {
             isVisible = true
             refresh()
@@ -104,11 +104,11 @@ struct DashboardView: View {
                 .opacity(subtitle == nil ? 0 : 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(AppConfig.Layout.statCardPadding)
         .background(primary ? Theme.surfaceRaised : Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous)
                 .stroke(primary ? Theme.accent.opacity(0.35) : Theme.border, lineWidth: 1)
         )
     }
@@ -132,7 +132,7 @@ struct DashboardView: View {
                     }
                 }
             }
-            .frame(height: 160)
+            .frame(height: AppConfig.Layout.weeklyChartHeight)
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks { _ in
@@ -157,7 +157,7 @@ struct DashboardView: View {
                     .foregroundStyle(Theme.accent)
                     .cornerRadius(2)
                 }
-                .frame(height: 140)
+                .frame(height: AppConfig.Layout.hourlyChartHeight)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 4)) {
                         AxisGridLine().foregroundStyle(Theme.borderSoft)
@@ -346,7 +346,7 @@ struct DashboardView: View {
             if snapshot.topApps.isEmpty {
                 Text("No data yet").foregroundStyle(Theme.textFaint)
             } else {
-                let items = Array(snapshot.topApps.prefix(15).enumerated())
+                let items = Array(snapshot.topApps.prefix(AppConfig.Layout.legendMaxRows).enumerated())
                 VStack(spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.offset) { position, pair in
                         let (index, item) = pair
@@ -382,11 +382,11 @@ struct DashboardView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(AppConfig.Layout.cardPadding)
         .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
                 .stroke(Theme.border, lineWidth: 1)
         )
     }
