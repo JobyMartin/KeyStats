@@ -7,6 +7,11 @@ struct DashboardView: View {
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
     @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
+    // No Preferences UI yet (design §8.4) — this key is read/written today
+    // only via `defaults write`/`defaults delete`, but binding through
+    // @AppStorage means a future slider needs zero rework here.
+    @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
+    @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
 
     var body: some View {
         ScrollView {
@@ -16,6 +21,7 @@ struct DashboardView: View {
                     errorBanner
                 }
                 headerStats
+                goalSection
                 weeklySection
                 hourlySection
                 topKeysSection
@@ -110,6 +116,70 @@ struct DashboardView: View {
         .overlay(
             RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous)
                 .stroke(primary ? Theme.accent.opacity(0.35) : Theme.border, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Goal
+
+    private var goalSection: some View {
+        HStack(spacing: 16) {
+            RingGauge(
+                progress: goalProgress,
+                lineWidth: AppConfig.Layout.goalRingLineWidth,
+                trackColor: Theme.borderSoft,
+                progressColor: goalMet ? Theme.good : Theme.accent
+            )
+            .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
+            .animation(.easeOut(duration: 0.4), value: goalProgress)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(goalPercent)% of daily goal")
+                    .font(.system(size: 14.5, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                Text("\(snapshot.totalToday.formatted()) / \(dailyGoal.formatted()) keys")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.textDim)
+            }
+
+            Spacer()
+
+            if streak > 0 {
+                Text("🔥 \(streak)-day streak")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+        }
+        .padding(AppConfig.Layout.cardPadding)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+    }
+
+    /// Clamped to the ring's 0...1 trim range.
+    private var goalProgress: Double {
+        guard dailyGoal > 0 else { return 0 }
+        return min(max(Double(snapshot.totalToday) / Double(dailyGoal), 0), 1)
+    }
+
+    /// Unclamped, unlike `goalProgress` — so "142% of daily goal" reads
+    /// correctly once the ring itself is already full.
+    private var goalPercent: Int {
+        guard dailyGoal > 0 else { return 0 }
+        return Int((Double(snapshot.totalToday) / Double(dailyGoal) * 100).rounded())
+    }
+
+    private var goalMet: Bool {
+        dailyGoal > 0 && snapshot.totalToday >= dailyGoal
+    }
+
+    private var streak: Int {
+        StreakCalculator.currentStreak(
+            metGoalDays: snapshot.streakEligibleDays,
+            countWeekends: countWeekendsTowardStreak,
+            today: Date()
         )
     }
 
