@@ -93,20 +93,24 @@ needed, instructions to remove and re-add KeyStats there:
 
 ### Using it
 
-The app has no Dock icon — look for the keyboard icon in your menu bar.
-Click it → **Open Dashboard** to see your stats, **Preferences…** for theme/
-goal settings, or **Quit KeyStats** to stop tracking and exit. The dashboard's
-gear icon opens the same Preferences window.
+The app has no Dock icon — look for the keyboard icon in your menu bar. Click
+it and you'll see a greeting (by name, if you've set one), today's keystroke
+count against your daily goal, then **Open Dashboard** for the full stats,
+**Preferences…** for theme/goal settings, or **Quit KeyStats** to stop
+tracking and exit. The dashboard's gear icon opens the same Preferences
+window.
 
-Preferences has a General tab (Accessibility permission status, with the
-same "Open Accessibility Settings" button as the dashboard banner), an
-Appearance tab (11 dark themes, click a card to switch — same list as
-`znotes/themes.json`), and a Goals tab (daily goal slider + presets, and a
-"count weekends toward streak" toggle, off by default so a quiet Saturday or
-Sunday can't break a streak built on weekdays). Changing the goal only ever
-affects *today* — past days keep whatever `goal_met` they were written with,
-permanently; raising the goal above what you've already typed today un-earns
-just today's credit, and lowering it back re-earns it.
+Preferences has a General tab (a display name that shows up in the menu bar
+greeting, plus Accessibility permission status with the same "Open
+Accessibility Settings" button as the dashboard banner), an Appearance tab
+(11 dark themes, click a card to switch — same list as `znotes/themes.json`),
+and a Goals tab (daily goal slider + presets, a "count weekends toward
+streak" toggle off by default so a quiet Saturday or Sunday can't break a
+streak built on weekdays, and your longest streak with its date range).
+Changing the goal only ever affects *today* — past days keep whatever
+`goal_met` they were written with, permanently; raising the goal above what
+you've already typed today un-earns just today's credit, and lowering it
+back re-earns it.
 
 ![preferences accessibility status](screenshots/redesign-v1/dashboard-no-assc-preferences-card.png)
 
