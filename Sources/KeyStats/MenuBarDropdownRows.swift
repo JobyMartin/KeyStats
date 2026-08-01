@@ -17,7 +17,12 @@ struct MenuBarGreetingRow: View {
     let firstName: String?
     let launchTime: String
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
+    @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
+    @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
+    private var typography: AppTypography {
+        AppTypography(preset: FontPreset.preset(forID: fontPresetID), scale: FontScale(rawValue: fontScaleRaw) ?? .regular)
+    }
 
     private var greeting: String {
         if let firstName {
@@ -31,10 +36,10 @@ struct MenuBarGreetingRow: View {
             RingGaugeMark(size: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text(greeting)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(typography.greeting)
                     .foregroundStyle(theme.text)
                 Text("Tracking since \(launchTime)")
-                    .font(.system(size: 10.5))
+                    .font(typography.caption)
                     .foregroundStyle(theme.textFaint)
             }
             Spacer(minLength: 0)
@@ -44,6 +49,7 @@ struct MenuBarGreetingRow: View {
         .frame(width: dropdownRowWidth, alignment: .leading)
         .background(theme.bg)
         .environment(\.theme, theme)
+        .environment(\.typography, typography)
     }
 }
 
@@ -51,19 +57,24 @@ struct MenuBarStatRow: View {
     let todayTotal: Int
     let goalPercent: Int
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
+    @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
+    @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
+    private var typography: AppTypography {
+        AppTypography(preset: FontPreset.preset(forID: fontPresetID), scale: FontScale(rawValue: fontScaleRaw) ?? .regular)
+    }
 
     var body: some View {
         HStack {
             Text("Today")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(typography.mediumLabel)
                 .foregroundStyle(theme.textDim)
             Spacer()
             Text(todayTotal.formatted())
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .font(typography.statNumber)
                 .foregroundStyle(theme.accent)
             Text("\(goalPercent)% of goal")
-                .font(.system(size: 11, design: .monospaced))
+                .font(typography.monoSmall)
                 .foregroundStyle(theme.textDim)
         }
         .padding(.horizontal, 10)
@@ -75,6 +86,7 @@ struct MenuBarStatRow: View {
         .frame(width: dropdownRowWidth, alignment: .leading)
         .background(theme.bg)
         .environment(\.theme, theme)
+        .environment(\.typography, typography)
     }
 }
 

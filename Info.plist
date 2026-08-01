@@ -16,6 +16,7 @@
   </array>
   <key>LSMinimumSystemVersion</key>           <string>14.0</string>
   <key>LSUIElement</key>                      <true/>
+  <key>ATSApplicationFontsPath</key>          <string>Fonts</string>
   <key>NSAccessibilityUsageDescription</key>
   <string>KeyStats needs Accessibility access to count your keystrokes.</string>
 </dict>

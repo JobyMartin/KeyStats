@@ -51,6 +51,12 @@ printf 'APPL????' > "$STAGE/Contents/PkgInfo"   # 8 bytes, no trailing newline
 cp "$BIN" "$STAGE/Contents/MacOS/$APP_NAME"
 chmod 755 "$STAGE/Contents/MacOS/$APP_NAME"
 
+# Bundled fonts (Typography.swift's ★ presets — znotes/fonts.md) — matched
+# by ATSApplicationFontsPath = "Fonts" in Info.plist, which macOS reads at
+# launch to register them automatically. No registration code needed.
+mkdir -p "$STAGE/Contents/Resources/Fonts"
+find "$REPO/Resources/Fonts" -name '*.ttf' -exec cp {} "$STAGE/Contents/Resources/Fonts/" \;
+
 plutil -lint "$STAGE/Contents/Info.plist"
 plutil -lint "$REPO/KeyStats.entitlements"
 

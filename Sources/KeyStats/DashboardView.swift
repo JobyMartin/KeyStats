@@ -17,8 +17,13 @@ struct DashboardView: View {
     // (PreferencesView.swift) — this just needs to read the same key so the
     // dashboard repaints when it's changed there.
     @AppStorage(AppConfig.Defaults.themeID) private var themeID = AppTheme.backlit.id
+    @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
+    @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
 
     private var theme: AppTheme { AppTheme.theme(forID: themeID) }
+    private var typography: AppTypography {
+        AppTypography(preset: FontPreset.preset(forID: fontPresetID), scale: FontScale(rawValue: fontScaleRaw) ?? .regular)
+    }
 
     var body: some View {
         ScrollView {
@@ -45,6 +50,7 @@ struct DashboardView: View {
         .scrollContentBackground(.hidden)
         .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .environment(\.theme, theme)
+        .environment(\.typography, typography)
         .onAppear {
             isVisible = true
             refresh()
@@ -69,7 +75,7 @@ struct DashboardView: View {
         HStack(spacing: 9) {
             RingGaugeMark(size: 28)
             Text("KeyStats")
-                .font(.system(size: 14, weight: .semibold))
+                .font(typography.wordmark)
                 .foregroundStyle(theme.text)
             Spacer()
             settingsButton
@@ -125,16 +131,16 @@ struct DashboardView: View {
     private var permissionBanner: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(permissionBannerTitle, systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
+                .font(typography.emphasis)
             Text(permissionBannerMessage)
-                .font(.caption)
+                .font(typography.caption)
                 .foregroundStyle(theme.textDim)
             HStack(spacing: 8) {
                 Button {
                     permissions.openAccessibilitySettings()
                 } label: {
                     Text("Open Accessibility Settings")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(typography.strongSmall)
                         .foregroundStyle(theme.bg)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -147,7 +153,7 @@ struct DashboardView: View {
                     permissions.copyResetCommand()
                 } label: {
                     Text("Copy reset command")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(typography.mediumLabel)
                         .foregroundStyle(theme.bad)
                 }
                 .buttonStyle(.plain)
@@ -164,9 +170,9 @@ struct DashboardView: View {
 
     private var errorBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Database unavailable").font(.headline)
+            Text("Database unavailable").font(typography.emphasis)
             Text(Storage.shared.lastError ?? "Unknown error")
-                .font(.caption)
+                .font(typography.caption)
                 .foregroundStyle(theme.textDim)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,17 +199,17 @@ struct DashboardView: View {
     private func statCard(title: String, value: String, subtitle: String? = nil, primary: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title.uppercased())
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(typography.statLabel)
                 .tracking(0.5)
                 .foregroundStyle(theme.textFaint)
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .monospaced))
+                .font(typography.heroNumber)
                 .foregroundStyle(primary ? theme.accent : theme.text)
             // Always render this line, even when there's no subtitle —
             // otherwise this card is one line shorter than its siblings
             // and the row heights in headerStats' grid don't match.
             Text(subtitle ?? " ")
-                .font(.system(size: 10.5))
+                .font(typography.caption)
                 .foregroundStyle(theme.textFaint)
                 .opacity(subtitle == nil ? 0 : 1)
         }
@@ -232,10 +238,10 @@ struct DashboardView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(goalPercent)% of daily goal")
-                    .font(.system(size: 14.5, weight: .bold))
+                    .font(typography.heroLabel)
                     .foregroundStyle(theme.text)
                 Text("\(snapshot.totalToday.formatted()) / \(dailyGoal.formatted()) keys")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(typography.monoValue)
                     .foregroundStyle(theme.textDim)
             }
 
@@ -243,7 +249,7 @@ struct DashboardView: View {
 
             if streak > 0 {
                 Text("🔥 \(streak)-day streak")
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(typography.emphasis)
                     .foregroundStyle(theme.accent)
             }
         }
@@ -295,7 +301,7 @@ struct DashboardView: View {
                 .annotation(position: .top) {
                     if day.total > 0 {
                         Text(day.total.formatted())
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(typography.monoTiny)
                             .foregroundStyle(theme.textFaint)
                     }
                 }
@@ -304,7 +310,7 @@ struct DashboardView: View {
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks { _ in
-                    AxisValueLabel().foregroundStyle(theme.textFaint)
+                    AxisValueLabel().foregroundStyle(theme.textFaint).font(typography.caption)
                 }
             }
         }
@@ -329,13 +335,13 @@ struct DashboardView: View {
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 4)) {
                         AxisGridLine().foregroundStyle(theme.borderSoft)
-                        AxisValueLabel(format: .dateTime.hour()).foregroundStyle(theme.textFaint)
+                        AxisValueLabel(format: .dateTime.hour()).foregroundStyle(theme.textFaint).font(typography.caption)
                     }
                 }
                 .chartYAxis {
                     AxisMarks {
                         AxisGridLine().foregroundStyle(theme.borderSoft)
-                        AxisValueLabel().foregroundStyle(theme.textFaint)
+                        AxisValueLabel().foregroundStyle(theme.textFaint).font(typography.caption)
                     }
                 }
             }
@@ -357,7 +363,7 @@ struct DashboardView: View {
                             barTrack(fraction: Double(item.count) / Double(maxCount), color: theme.accent)
                                 .frame(height: 16)
                             Text(item.count.formatted())
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(typography.monoSmall)
                                 .foregroundStyle(theme.textDim)
                                 .frame(width: 42, alignment: .trailing)
                         }
@@ -372,7 +378,7 @@ struct DashboardView: View {
     /// Delete") get abbreviated to a symbol instead of widening the chip.
     private func keycapChip(_ label: String) -> some View {
         Text(Self.shortKeyLabel(label))
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(typography.monoKeycap)
             .foregroundStyle(theme.textDim)
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -438,13 +444,13 @@ struct DashboardView: View {
                                 .fill(color)
                                 .frame(width: 8, height: 8)
                             Text(item.keyName)
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(typography.monoValue)
                                 .foregroundStyle(theme.text)
                                 .frame(width: 64, alignment: .leading)
                             barTrack(fraction: pct, color: color)
                                 .frame(height: 6)
                             Text(String(format: "%.0f%%", pct * 100))
-                                .font(.system(size: 11))
+                                .font(typography.caption)
                                 .foregroundStyle(theme.textFaint)
                                 .frame(width: 34, alignment: .trailing)
                         }
@@ -478,10 +484,10 @@ struct DashboardView: View {
             HStack(spacing: 3) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                     if index > 0 {
-                        Text("+").font(.system(size: 10)).foregroundStyle(theme.textFaint)
+                        Text("+").font(typography.caption).foregroundStyle(theme.textFaint)
                     }
                     Text(part)
-                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .font(typography.monoChipStrong)
                         .foregroundStyle(theme.text)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -491,7 +497,7 @@ struct DashboardView: View {
                 }
             }
             Text(count.formatted())
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .font(typography.monoChipStrong)
                 .foregroundStyle(theme.accent)
         }
         .padding(.horizontal, 10)
@@ -523,11 +529,11 @@ struct DashboardView: View {
                                 .fill(theme.series[index % theme.series.count])
                                 .frame(width: 9, height: 9)
                             Text(item.appName.isEmpty ? "(unknown)" : item.appName)
-                                .font(.system(size: 12.5))
+                                .font(typography.body)
                                 .foregroundStyle(theme.text)
                             Spacer()
                             Text(item.count.formatted())
-                                .font(.system(size: 11.5, design: .monospaced))
+                                .font(typography.monoSmall)
                                 .foregroundStyle(theme.textDim)
                         }
                         .padding(.vertical, 7)
@@ -545,7 +551,7 @@ struct DashboardView: View {
     private func sectionCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(typography.cardTitle)
                 .foregroundStyle(theme.text)
             content()
         }

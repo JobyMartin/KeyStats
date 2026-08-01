@@ -68,6 +68,10 @@ enum AppConfig {
         /// description happen to be, so the grid reads as even rows.
         static let themeCardHeight: CGFloat = 108
         static let themeCardDescriptionHeight: CGFloat = 28
+        /// Preferences → Appearance's font preset cards (Typography.swift's
+        /// `FontPreset`) — same fixed-height-grid reasoning as the theme
+        /// cards above.
+        static let fontPresetCardHeight: CGFloat = 96
     }
 
     enum Timing {
@@ -99,6 +103,8 @@ enum AppConfig {
         static let countWeekendsTowardStreak = "countWeekendsTowardStreak"
         static let themeID = "themeID"
         static let displayName = "displayName"
+        static let fontScale = "fontScale"
+        static let fontPresetID = "fontPresetID"
         /// Set true the first time the event tap ever starts successfully.
         /// Lets the permission banner distinguish "lost permission after an
         /// update" (scarier, needs revoke-then-re-grant wording) from a
@@ -139,5 +145,15 @@ enum UserSettings {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         return name.split(separator: " ").first.map(String.init)
+    }
+
+    /// For AppKit code (the menu bar dropdown's rebuild trigger) — SwiftUI
+    /// views should prefer `@AppStorage(AppConfig.Defaults.fontScale)`.
+    static var fontScale: FontScale {
+        FontScale(rawValue: UserDefaults.standard.string(forKey: AppConfig.Defaults.fontScale) ?? "") ?? .regular
+    }
+
+    static var fontPreset: FontPreset {
+        FontPreset.preset(forID: UserDefaults.standard.string(forKey: AppConfig.Defaults.fontPresetID) ?? "")
     }
 }
