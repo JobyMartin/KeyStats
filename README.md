@@ -61,8 +61,17 @@ or Karabiner). On first launch:
 ### Using it
 
 The app has no Dock icon — look for the keyboard icon in your menu bar.
-Click it → **Open Dashboard** to see your stats, or **Quit KeyStats** to stop
-tracking and exit.
+Click it → **Open Dashboard** to see your stats, **Preferences…** for theme/
+goal settings, or **Quit KeyStats** to stop tracking and exit. The dashboard's
+gear icon opens the same Preferences window.
+
+Preferences has an Appearance tab (11 dark themes, click a card to switch —
+same list as `znotes/themes.json`) and a Goals tab (daily goal slider +
+presets, and a "count weekends toward streak" toggle, off by default so a
+quiet Saturday or Sunday can't break a streak built on weekdays). Changing
+the goal only ever affects *today* — past days keep whatever `goal_met` they
+were written with, permanently; raising the goal above what you've already
+typed today un-earns just today's credit, and lowering it back re-earns it.
 
 ## Customizing it
 
@@ -71,15 +80,14 @@ range/presets, refresh intervals, chart sizing, query limits — lives in one
 file, `Sources/KeyStats/AppConfig.swift`. Edit a constant there and rebuild
 rather than hunting a number down across files.
 
-The daily goal itself, and whether weekends count toward your streak, don't
-have a Preferences UI yet, but are already real persisted settings — change
-them with `defaults write` and relaunch:
+The daily goal and weekend toggle are also reachable via `defaults write` if
+you'd rather script it than use Preferences:
 
 ```bash
 defaults write com.joby.KeyStatsApp dailyGoal 20000
-defaults write com.joby.KeyStatsApp countWeekendsTowardStreak -bool false
+defaults write com.joby.KeyStatsApp countWeekendsTowardStreak -bool true
 
-# back to the defaults (15,000 / weekends count)
+# back to the defaults (15,000 / weekends don't count)
 defaults delete com.joby.KeyStatsApp dailyGoal
 defaults delete com.joby.KeyStatsApp countWeekendsTowardStreak
 ```
