@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func pollForPermission() {
         permissionPollTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+        let timer = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.permissionPoll, repeats: true) { [weak self] timer in
             guard AXIsProcessTrusted() else { return }
             timer.invalidate()
             self?.permissionPollTimer = nil
@@ -68,8 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if window == nil {
             let hosting = NSHostingController(rootView: DashboardView())
             let newWindow = NSWindow(contentViewController: hosting)
-            newWindow.title = "KeyStats"
-            newWindow.setContentSize(NSSize(width: 560, height: 760))
+            newWindow.title = AppConfig.Window.title
+            newWindow.setContentSize(NSSize(width: AppConfig.Window.dashboardSize.width, height: AppConfig.Window.dashboardSize.height))
             newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             newWindow.isReleasedWhenClosed = false
             window = newWindow
