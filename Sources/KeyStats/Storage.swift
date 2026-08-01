@@ -80,11 +80,18 @@ final class Storage {
             return
         }
 
-        sqlite3_busy_timeout(db, 3_000)
+        sqlite3_busy_timeout(db, AppConfig.Timing.sqliteBusyTimeoutMs)
         exec("PRAGMA journal_mode = WAL;")
         exec("PRAGMA synchronous = NORMAL;") // safe with WAL
 
         createTables()
+        guard migrate() else {
+            lastError = lastError ?? "Schema migration failed"
+            NSLog("KeyStats: %@", lastError!)
+            sqlite3_close(db)
+            db = nil
+            return // degraded: isAvailable stays false, matching the open-failure path above
+        }
         isAvailable = true
         NSLog("KeyStats: opened db at %@ (threadsafe=%d)", databasePath, sqlite3_threadsafe())
 
@@ -96,10 +103,8 @@ final class Storage {
     //
     // Do NOT change this. The live database (a month of real stats) has
     // this exact schema; these CREATE TABLE statements are idempotent
-    // no-ops against it. There is no migration system and none is needed
-    // for six append-only counter tables — if a real schema change is ever
-    // required, the correct pattern is: read PRAGMA user_version, apply
-    // numbered steps inside a transaction, bump it. Don't improvise one.
+    // no-ops against it. This is version 0 of the schema — see `migrate()`
+    // below for how to change it going forward.
     private func createTables() {
         let statements = [
             """
@@ -152,6 +157,114 @@ final class Storage {
             NSLog("KeyStats: SQLite error: %@ (sql: %@)", msg, sql)
             sqlite3_free(errMsg)
         }
+    }
+
+    // MARK: - Migrations
+    //
+    // `createTables()`'s `CREATE TABLE IF NOT EXISTS` handles a *missing
+    // table* fine, but does nothing for a new column on a table that
+    // already exists — SQLite has no `ADD COLUMN IF NOT EXISTS`. Without
+    // this, an update that adds a column would ship fine to a fresh install
+    // (which gets it from `createTables()`) but leave every existing
+    // install's table one column short, and every write touching it would
+    // fail from then on. This is the numbered-steps system called for above.
+    //
+    // Rules for adding a step:
+    //   1. Steps are APPEND-ONLY. Never edit a step that has already
+    //      shipped — an install that already ran it will never run it again.
+    //   2. `ALTER TABLE ... ADD COLUMN` can't add `NOT NULL` without a
+    //      `DEFAULT`; always supply one (see the existing counter columns'
+    //      `DEFAULT 0` for the convention).
+    //   3. This runs on the init thread, before `startFlushTimer()` — i.e.
+    //      before `queue` has any other work queued — so it is the one
+    //      place in this file exempt from the "never call queue.sync/async
+    //      from code already on queue" rule at the top of this file. It
+    //      talks to `db` directly, the same as `createTables()`.
+    private typealias MigrationStep = (version: Int32, apply: () -> Bool)
+    private var migrationSteps: [MigrationStep] {
+        [(version: 1, apply: migrateV1_addGoalMetColumn)]
+    } // version 0 = today's six tables
+
+    /// v1: adds `daily_totals.goal_met` — nullable, 1 means that day's
+    /// keystrokes reached the goal in effect at the time it was recorded,
+    /// NULL means it didn't (or hasn't been evaluated yet). Once written,
+    /// 1 is never cleared back to NULL — see `_markGoalMetIfNeeded` — so
+    /// raising the goal later doesn't retroactively take a day back.
+    ///
+    /// Backfills existing rows using the goal in effect right now (whatever
+    /// `UserSettings.dailyGoal` reads as at upgrade time) so an installed
+    /// user's streak reflects real history instead of resetting to zero the
+    /// moment this ships. This is a one-time judgment call made at the
+    /// point of upgrade, not a live goal — a day's persisted flag doesn't
+    /// change again after this if the goal changes later.
+    private func migrateV1_addGoalMetColumn() -> Bool {
+        guard addColumnIfMissing(table: "daily_totals", column: "goal_met", definition: "INTEGER") else { return false }
+        guard let db else { return false }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "UPDATE daily_totals SET goal_met = 1 WHERE total_keys >= ?;", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        sqlite3_bind_int(stmt, 1, Int32(UserSettings.dailyGoal))
+        let ok = sqlite3_step(stmt) == SQLITE_DONE
+        sqlite3_finalize(stmt)
+        return ok
+    }
+
+    /// MUST be called already running on the init thread (see note above).
+    private func migrate() -> Bool {
+        guard let db else { return false }
+        var version: Int32 = 0
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                version = sqlite3_column_int(stmt, 0)
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        for step in migrationSteps where step.version > version {
+            guard sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil) == SQLITE_OK else {
+                lastError = "Migration \(step.version) failed to begin: \(String(cString: sqlite3_errmsg(db)))"
+                return false
+            }
+            guard step.apply() else {
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                lastError = "Migration \(step.version) failed"
+                return false
+            }
+            // PRAGMA user_version can't be bound as a parameter; safe to
+            // interpolate since `step.version` is a compile-time constant,
+            // never user input.
+            exec("PRAGMA user_version = \(step.version);")
+            guard sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK else {
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                lastError = "Migration \(step.version) failed to commit: \(String(cString: sqlite3_errmsg(db)))"
+                return false
+            }
+            version = step.version
+        }
+        return true
+    }
+
+    /// Adds `column` to `table` only if it isn't already there. Safe to call
+    /// even when `user_version` is out of sync with reality (e.g. a db
+    /// restored from a backup, or one that ran a beta build) — the check is
+    /// against the table's actual columns, not the version number.
+    private func addColumnIfMissing(table: String, column: String, definition: String) -> Bool {
+        guard let db else { return false }
+        var stmt: OpaquePointer?
+        var exists = false
+        if sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let raw = sqlite3_column_text(stmt, 1), String(cString: raw) == column {
+                    exists = true
+                    break
+                }
+            }
+        }
+        sqlite3_finalize(stmt)
+        guard !exists else { return true }
+        return sqlite3_exec(db, "ALTER TABLE \(table) ADD COLUMN \(column) \(definition);", nil, nil, nil) == SQLITE_OK
     }
 
     /// Runs PRAGMA quick_check + a row count on launch, purely for the log —
@@ -282,12 +395,13 @@ final class Storage {
     private var stmtHourly: OpaquePointer?
     private var stmtApp: OpaquePointer?
     private var stmtDaily: OpaquePointer?
+    private var stmtMarkGoalMet: OpaquePointer?
     private var statementsPrepared = false
     private var flushTimer: DispatchSourceTimer?
 
     private func startFlushTimer() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
+        t.schedule(deadline: .now() + AppConfig.Timing.dbFlush, repeating: AppConfig.Timing.dbFlush, leeway: .seconds(1))
         t.setEventHandler { [weak self] in self?.flushOnQueue() }
         t.resume()
         flushTimer = t
@@ -343,7 +457,12 @@ final class Storage {
             ON CONFLICT(day) DO UPDATE SET total_keys = total_keys + excluded.total_keys,
                                            backspace_count = backspace_count + excluded.backspace_count;
             """)
-        statementsPrepared = [stmtKey, stmtModifier, stmtKeybind, stmtHourly, stmtApp, stmtDaily].allSatisfy { $0 != nil }
+        // Only ever moves goal_met from NULL/0 -> 1, never back — see the
+        // migrateV1_addGoalMetColumn doc comment for why that's intentional.
+        stmtMarkGoalMet = prep("""
+            UPDATE daily_totals SET goal_met = 1 WHERE day = ? AND total_keys >= ?;
+            """)
+        statementsPrepared = [stmtKey, stmtModifier, stmtKeybind, stmtHourly, stmtApp, stmtDaily, stmtMarkGoalMet].allSatisfy { $0 != nil }
         return statementsPrepared
     }
 
@@ -435,11 +554,20 @@ final class Storage {
                 sqlite3_bind_int(s, 2, Int32(d))
             } && ok
         }
+        // Read once per flush, not once per day — UserDefaults is cheap but
+        // there's no reason to hit it more than the batch needs.
+        let currentGoal = Int32(UserSettings.dailyGoal)
         for (day, v) in pending.daily {
             ok = step(stmtDaily) { s in
                 sqlite3_bind_text(s, 1, day, -1, SQLITE_TRANSIENT)
                 sqlite3_bind_int(s, 2, Int32(v.total))
                 sqlite3_bind_int(s, 3, Int32(v.backspaces))
+            } && ok
+            // Must run after stmtDaily above: it checks the row's
+            // just-upserted cumulative total_keys, not this flush's delta.
+            ok = step(stmtMarkGoalMet) { s in
+                sqlite3_bind_text(s, 1, day, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int(s, 2, currentGoal)
             } && ok
         }
 
@@ -466,7 +594,7 @@ final class Storage {
             self.flushTimer?.cancel()
             self.flushTimer = nil
             self.flushOnQueue()
-            for s in [stmtKey, stmtModifier, stmtKeybind, stmtHourly, stmtApp, stmtDaily] {
+            for s in [stmtKey, stmtModifier, stmtKeybind, stmtHourly, stmtApp, stmtDaily, stmtMarkGoalMet] {
                 sqlite3_finalize(s)
             }
             statementsPrepared = false
@@ -530,6 +658,12 @@ final class Storage {
         /// to the actual install date — e.g. after a reset — this should
         /// be replaced with a real stored join date instead of re-deriving it.
         var joinedLabel = ""
+        /// "yyyy-MM-dd" days (within `AppConfig.Goal.streakLookbackDays`)
+        /// where `daily_totals.goal_met = 1` — persisted at write time, not
+        /// recomputed against today's goal, so a later goal change doesn't
+        /// retroactively add or remove days from this set. See
+        /// `Storage.migrateV1_addGoalMetColumn` and `StreakCalculator`.
+        var streakEligibleDays: Set<String> = []
     }
 
     /// Synchronous snapshot. Callers on a background thread are fine; do not
@@ -565,12 +699,13 @@ final class Storage {
         s.backspaceRatio = _backspaceRatioToday()
         s.totalToday = s.weeklyTotals.last?.total ?? 0
         s.joinedLabel = _joinedLabel()
+        s.streakEligibleDays = _metGoalDaysSince(daysAgo: AppConfig.Goal.streakLookbackDays)
         return s
     }
 
     // MARK: - Readers (all assume they're already on `queue`; see rule 1)
 
-    private func _topKeys(limit: Int = 15) -> [KeyCount] {
+    private func _topKeys(limit: Int = AppConfig.Query.topKeysLimit) -> [KeyCount] {
         _readPairs("SELECT key_name, count FROM key_counts ORDER BY count DESC LIMIT \(limit);")
             .map { KeyCount(keyName: $0.0, count: $0.1) }
     }
@@ -580,18 +715,18 @@ final class Storage {
             .map { KeyCount(keyName: $0.0, count: $0.1) }
     }
 
-    private func _topKeybinds(limit: Int = 15) -> [ComboCount] {
+    private func _topKeybinds(limit: Int = AppConfig.Query.topKeybindsLimit) -> [ComboCount] {
         _readPairs("SELECT combo, count FROM keybind_counts ORDER BY count DESC LIMIT \(limit);")
             .map { ComboCount(combo: $0.0, count: $0.1) }
     }
 
-    private func _topApps(limit: Int = 10) -> [AppCount] {
+    private func _topApps(limit: Int = AppConfig.Query.topAppsLimit) -> [AppCount] {
         _readPairs("SELECT app_name, count FROM app_activity ORDER BY count DESC LIMIT \(limit);")
             .map { AppCount(appName: $0.0, count: $0.1) }
     }
 
     private func _last24Hours() -> [HourBucket] {
-        let cutoff = Int64(Date().timeIntervalSince1970) - 24 * 3600
+        let cutoff = Int64(Date().timeIntervalSince1970) - Int64(AppConfig.Query.hourlyWindowHours) * 3600
         var result: [HourBucket] = []
         var stmt: OpaquePointer?
         let sql = "SELECT hour_bucket, count FROM hourly_activity WHERE hour_bucket >= ? ORDER BY hour_bucket ASC;"
@@ -611,7 +746,7 @@ final class Storage {
     private func _lastSevenDays() -> [DayTotal] {
         let cal = Calendar.current
         let today = Date()
-        let days: [String] = (0..<7).reversed().compactMap { offset in
+        let days: [String] = (0..<AppConfig.Query.weeklyDays).reversed().compactMap { offset in
             guard let date = cal.date(byAdding: .day, value: -offset, to: today) else { return nil }
             return DayKey.string(from: date)
         }
@@ -672,6 +807,32 @@ final class Storage {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         return formatter.string(from: date)
+    }
+
+    /// Days (within `daysAgo`, including today) where `goal_met = 1` was
+    /// persisted at write time — see `stmtMarkGoalMet`. Today's flag is
+    /// current as of this call because `snapshotOnQueue()` always flushes
+    /// first, so any goal crossed by buffered-but-unflushed keystrokes has
+    /// already been written before this reads it.
+    private func _metGoalDaysSince(daysAgo: Int) -> Set<String> {
+        let cal = Calendar.current
+        guard let cutoffDate = cal.date(byAdding: .day, value: -daysAgo, to: Date()) else { return [] }
+        let cutoff = DayKey.string(from: cutoffDate)
+
+        var result: Set<String> = []
+        var stmt: OpaquePointer?
+        let sql = "SELECT day FROM daily_totals WHERE day >= ? AND goal_met = 1;"
+        // String comparison is safe here because DayKey is zero-padded
+        // "yyyy-MM-dd" — lexicographic order matches date order.
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, cutoff, -1, SQLITE_TRANSIENT)
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let raw = sqlite3_column_text(stmt, 0) else { continue }
+                result.insert(String(cString: raw))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return result
     }
 
     private func _backspaceRatioToday() -> Double {

@@ -17,6 +17,10 @@ exists in the app at all.
   see how much time goes to your editor vs. terminal vs. Slack)
 - **Daily totals + backspace ratio** — rough proxy for how much you're
   correcting yourself while coding
+- **Daily goal + streak** — a progress ring against a daily keystroke goal
+  (15,000 by default), and a streak of consecutive days you've hit it. Once
+  a day is credited it stays credited even if you change the goal later —
+  see "Customizing it" below for how to change the goal itself
 
 It intentionally does **not** store the sequence/content of what you typed —
 only aggregate counts. That keeps it useful without turning into an actual
@@ -60,6 +64,30 @@ The app has no Dock icon — look for the keyboard icon in your menu bar.
 Click it → **Open Dashboard** to see your stats, or **Quit KeyStats** to stop
 tracking and exit.
 
+## Customizing it
+
+Every tunable number in the app — window size, the daily goal's default/
+range/presets, refresh intervals, chart sizing, query limits — lives in one
+file, `Sources/KeyStats/AppConfig.swift`. Edit a constant there and rebuild
+rather than hunting a number down across files.
+
+The daily goal itself, and whether weekends count toward your streak, don't
+have a Preferences UI yet, but are already real persisted settings — change
+them with `defaults write` and relaunch:
+
+```bash
+defaults write com.joby.KeyStatsApp dailyGoal 20000
+defaults write com.joby.KeyStatsApp countWeekendsTowardStreak -bool false
+
+# back to the defaults (15,000 / weekends count)
+defaults delete com.joby.KeyStatsApp dailyGoal
+defaults delete com.joby.KeyStatsApp countWeekendsTowardStreak
+```
+
+(If you're running via `swift run` rather than the packaged `.app`, these
+land in a different `defaults` domain — the SwiftPM executable's, not
+`com.joby.KeyStatsApp` — since they're keyed by bundle identifier.)
+
 ## Notes on accuracy / extending it
 
 - The keycode → name map in `KeyCodeMap.swift` covers a standard US ANSI
@@ -71,6 +99,12 @@ tracking and exit.
   delete the `recordFrontmostApp()` calls in `EventTapManager.swift`.
 - To reset all stats, quit the app and delete
   `~/Library/Application Support/KeyStats/keystats.sqlite`.
+- If you need to change the SQLite schema, don't edit the `CREATE TABLE`
+  statements directly — `Storage.swift` has a numbered-migration system
+  (`migrate()`/`addColumnIfMissing`) specifically so an update doesn't break
+  installs that already have data. See the comment block above `migrate()`
+  for the rules (append-only steps, always provide a `DEFAULT` for `NOT
+  NULL` columns).
 
 ## Packaging as a real .app (to come)
 

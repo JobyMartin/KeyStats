@@ -6,16 +6,22 @@ struct DashboardView: View {
     @State private var isVisible = false
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
-    @State private var refreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
+    // No Preferences UI yet (design §8.4) — this key is read/written today
+    // only via `defaults write`/`defaults delete`, but binding through
+    // @AppStorage means a future slider needs zero rework here.
+    @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
+    @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: AppConfig.Layout.sectionSpacing) {
                 header
                 if !Storage.shared.isAvailable {
                     errorBanner
                 }
                 headerStats
+                goalSection
                 weeklySection
                 hourlySection
                 topKeysSection
@@ -23,11 +29,11 @@ struct DashboardView: View {
                 keybindsSection
                 appsSection
             }
-            .padding(22)
+            .padding(AppConfig.Layout.contentPadding)
         }
         .background(Theme.bg)
         .scrollContentBackground(.hidden)
-        .frame(minWidth: 560, minHeight: 760)
+        .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .onAppear {
             isVisible = true
             refresh()
@@ -104,12 +110,76 @@ struct DashboardView: View {
                 .opacity(subtitle == nil ? 0 : 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(AppConfig.Layout.statCardPadding)
         .background(primary ? Theme.surfaceRaised : Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConfig.Layout.statCardCornerRadius, style: .continuous)
                 .stroke(primary ? Theme.accent.opacity(0.35) : Theme.border, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Goal
+
+    private var goalSection: some View {
+        HStack(spacing: 16) {
+            RingGauge(
+                progress: goalProgress,
+                lineWidth: AppConfig.Layout.goalRingLineWidth,
+                trackColor: Theme.borderSoft,
+                progressColor: goalMet ? Theme.good : Theme.accent
+            )
+            .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
+            .animation(.easeOut(duration: 0.4), value: goalProgress)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(goalPercent)% of daily goal")
+                    .font(.system(size: 14.5, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                Text("\(snapshot.totalToday.formatted()) / \(dailyGoal.formatted()) keys")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.textDim)
+            }
+
+            Spacer()
+
+            if streak > 0 {
+                Text("🔥 \(streak)-day streak")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+        }
+        .padding(AppConfig.Layout.cardPadding)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+    }
+
+    /// Clamped to the ring's 0...1 trim range.
+    private var goalProgress: Double {
+        guard dailyGoal > 0 else { return 0 }
+        return min(max(Double(snapshot.totalToday) / Double(dailyGoal), 0), 1)
+    }
+
+    /// Unclamped, unlike `goalProgress` — so "142% of daily goal" reads
+    /// correctly once the ring itself is already full.
+    private var goalPercent: Int {
+        guard dailyGoal > 0 else { return 0 }
+        return Int((Double(snapshot.totalToday) / Double(dailyGoal) * 100).rounded())
+    }
+
+    private var goalMet: Bool {
+        dailyGoal > 0 && snapshot.totalToday >= dailyGoal
+    }
+
+    private var streak: Int {
+        StreakCalculator.currentStreak(
+            metGoalDays: snapshot.streakEligibleDays,
+            countWeekends: countWeekendsTowardStreak,
+            today: Date()
         )
     }
 
@@ -132,7 +202,7 @@ struct DashboardView: View {
                     }
                 }
             }
-            .frame(height: 160)
+            .frame(height: AppConfig.Layout.weeklyChartHeight)
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks { _ in
@@ -157,7 +227,7 @@ struct DashboardView: View {
                     .foregroundStyle(Theme.accent)
                     .cornerRadius(2)
                 }
-                .frame(height: 140)
+                .frame(height: AppConfig.Layout.hourlyChartHeight)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .hour, count: 4)) {
                         AxisGridLine().foregroundStyle(Theme.borderSoft)
@@ -346,7 +416,7 @@ struct DashboardView: View {
             if snapshot.topApps.isEmpty {
                 Text("No data yet").foregroundStyle(Theme.textFaint)
             } else {
-                let items = Array(snapshot.topApps.prefix(15).enumerated())
+                let items = Array(snapshot.topApps.prefix(AppConfig.Layout.legendMaxRows).enumerated())
                 VStack(spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.offset) { position, pair in
                         let (index, item) = pair
@@ -382,11 +452,11 @@ struct DashboardView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(AppConfig.Layout.cardPadding)
         .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConfig.Layout.cardCornerRadius, style: .continuous)
                 .stroke(Theme.border, lineWidth: 1)
         )
     }

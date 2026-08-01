@@ -105,7 +105,7 @@ final class EventTapManager {
 
     private func startWatchdog() {
         watchdog?.invalidate()
-        watchdog = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        watchdog = Timer.scheduledTimer(withTimeInterval: AppConfig.Timing.tapWatchdog, repeats: true) { [weak self] _ in
             self?.reenableIfNeeded()
         }
     }
