@@ -9,12 +9,19 @@ extension Notification.Name {
     static let openPreferences = Notification.Name("KeyStats.openPreferences")
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
     private var preferencesWindow: NSWindow?
     private var permissionPollTimer: Timer?
     private var lastMenuPermissionState: PermissionMonitor.State?
+    private let launchedAt = Date()
+    private static let launchTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar only — no Dock icon, no main window on launch.
@@ -82,33 +89,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildMenu(permissionState: PermissionMonitor.State) {
         guard let item = statusItem else { return }
-
-        if let button = item.button {
-            if permissionState == .granted {
-                button.image = MenuBarIcon.ringGaugeTemplate()
-                button.contentTintColor = nil
-            } else {
-                // Template images can't carry color, so a real (non-template)
-                // symbol image is used here to show the warning in its
-                // natural color instead of menu-bar black/white.
-                button.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Accessibility permission needed")
-                button.image?.isTemplate = false
-                button.contentTintColor = .systemYellow
-            }
-        }
+        updateStatusIcon(permissionState: permissionState)
 
         let menu = NSMenu()
+        menu.delegate = self
         if permissionState != .granted {
             let warning = NSMenuItem(title: "⚠ Accessibility permission needed", action: #selector(showDashboard), keyEquivalent: "")
             menu.addItem(warning)
             menu.addItem(NSMenuItem.separator())
         }
-        menu.addItem(NSMenuItem(title: "Open Dashboard", action: #selector(showDashboard), keyEquivalent: "d"))
-        menu.addItem(NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ","))
+
+        // Greeting + today's stat — hosted SwiftUI so they can carry state
+        // (display name, live count) an NSMenuItem's plain title can't
+        // format. Refreshed on every open in menuWillOpen(_:), since
+        // rebuildMenu itself only runs on launch and on permission changes.
+        menu.addItem(makeMenuBarHostingItem(MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt))))
+        menu.addItem(makeMenuBarHostingItem(MenuBarStatRow(todayTotal: 0, goalPercent: 0)))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit KeyStats", action: #selector(quit), keyEquivalent: "q"))
+
+        menu.addItem(menuItem(title: "Open Dashboard", symbol: "chart.bar.fill", action: #selector(showDashboard), keyEquivalent: "d"))
+        menu.addItem(menuItem(title: "Preferences…", symbol: "gearshape.fill", action: #selector(showPreferences), keyEquivalent: ","))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(menuItem(title: "Quit KeyStats", symbol: "power", action: #selector(quit), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
+    }
+
+    private func menuItem(title: String, symbol: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
+        let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        menuItem.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return menuItem
+    }
+
+    private func updateStatusIcon(permissionState: PermissionMonitor.State) {
+        guard let button = statusItem?.button else { return }
+        if permissionState == .granted {
+            let goal = UserSettings.dailyGoal
+            let progress = goal > 0 ? Double(Storage.shared.todayTotal()) / Double(goal) : 0
+            button.image = MenuBarIcon.ringGaugeTemplate(progress: progress)
+            button.contentTintColor = nil
+        } else {
+            // Template images can't carry color, so a real (non-template)
+            // symbol image is used here to show the warning in its
+            // natural color instead of menu-bar black/white.
+            button.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Accessibility permission needed")
+            button.image?.isTemplate = false
+            button.contentTintColor = .systemYellow
+        }
+    }
+
+    /// Refreshes the two hosted stat rows (and the status-bar ring itself)
+    /// every time the dropdown opens — `rebuildMenu` only runs at launch and
+    /// on permission-state changes, so nothing else keeps "Today" current.
+    func menuWillOpen(_ menu: NSMenu) {
+        updateStatusIcon(permissionState: PermissionMonitor.shared.state)
+
+        let today = Storage.shared.todayTotal()
+        let goal = UserSettings.dailyGoal
+        let percent = goal > 0 ? Int((Double(today) / Double(goal) * 100).rounded()) : 0
+
+        for item in menu.items {
+            if let hosting = item.view as? NSHostingView<MenuBarStatRow> {
+                hosting.rootView = MenuBarStatRow(todayTotal: today, goalPercent: percent)
+                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            } else if let hosting = item.view as? NSHostingView<MenuBarGreetingRow> {
+                hosting.rootView = MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt))
+                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            }
+        }
     }
 
     @objc private func showDashboard() {

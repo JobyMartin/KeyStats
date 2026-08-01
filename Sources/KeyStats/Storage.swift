@@ -714,6 +714,18 @@ final class Storage {
         }
     }
 
+    /// Today's `total_keys`, for the menu-bar dropdown's stat row. A
+    /// dedicated single-row lookup rather than `snapshot()` — the dropdown
+    /// wants this on every `menuWillOpen`, and running all ten dashboard
+    /// readers for one number would be wasteful at that cadence.
+    func todayTotal() -> Int {
+        guard isAvailable else { return 0 }
+        return queue.sync {
+            self.flushOnQueue()
+            return self._todayTotal()
+        }
+    }
+
     /// MUST be called already running on `queue`.
     private func snapshotOnQueue() -> Snapshot {
         flushOnQueue() // pending in-memory deltas land before we read them
@@ -862,6 +874,21 @@ final class Storage {
         }
         sqlite3_finalize(stmt)
         return result
+    }
+
+    private func _todayTotal() -> Int {
+        let day = DayKey.string(from: Date())
+        var stmt: OpaquePointer?
+        var total = 0
+        let sql = "SELECT total_keys FROM daily_totals WHERE day = ?;"
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, day, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                total = Int(sqlite3_column_int64(stmt, 0))
+            }
+        }
+        sqlite3_finalize(stmt)
+        return total
     }
 
     private func _backspaceRatioToday() -> Double {
