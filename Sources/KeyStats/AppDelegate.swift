@@ -238,9 +238,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             newWindow.title = AppConfig.Window.title
             newWindow.setContentSize(NSSize(width: AppConfig.Window.dashboardSize.width, height: AppConfig.Window.dashboardSize.height))
             newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            // Kept alive after close for instant reopen (see below for why
+            // that no longer costs CPU) — tried releasing it on close
+            // instead (`isReleasedWhenClosed = true`), which crashed:
+            // dropping the window's last reference races AppKit's own
+            // in-flight close-transition CATransaction and frees
+            // `_NSWindowTransformAnimation` out from under it (SIGSEGV in
+            // `CA::Transaction::commit()`), even deferred a run loop turn.
             newWindow.isReleasedWhenClosed = false
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: newWindow, queue: .main) { _ in
+                WindowVisibility.shared.dashboardVisible = false
+            }
             window = newWindow
         }
+        WindowVisibility.shared.dashboardVisible = true
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -252,7 +263,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             newWindow.title = AppConfig.Window.preferencesTitle
             newWindow.setContentSize(NSSize(width: AppConfig.Window.preferencesSize.width, height: AppConfig.Window.preferencesSize.height))
             newWindow.styleMask = [.titled, .closable, .miniaturizable]
+            // See the matching comment in showDashboard() re:
+            // isReleasedWhenClosed — kept false, deliberately.
             newWindow.isReleasedWhenClosed = false
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: newWindow, queue: .main) { _ in
+                WindowVisibility.shared.preferencesVisible = false
+            }
             // Closes itself the moment focus moves anywhere else — the
             // dashboard, another app, the menu bar — so it behaves like a
             // lightweight panel instead of a window that's easy to lose
@@ -263,6 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             preferencesWindow = newWindow
         }
+        WindowVisibility.shared.preferencesVisible = true
         NSApp.activate(ignoringOtherApps: true)
         preferencesWindow?.makeKeyAndOrderFront(nil)
     }

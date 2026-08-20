@@ -6,7 +6,7 @@ struct DashboardView: View {
     @State private var isVisible = false
     @ObservedObject private var permissions = PermissionMonitor.shared
     @ObservedObject private var eventTap = EventTapManager.shared
-    @State private var pulseOn = false
+    @ObservedObject private var windowVisibility = WindowVisibility.shared
     // @State so SwiftUI owns this publisher's lifetime, not the (possibly
     // re-created) view struct.
     @State private var refreshTimer = Timer.publish(every: AppConfig.Timing.dashboardRefresh, on: .main, in: .common).autoconnect()
@@ -28,6 +28,33 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        Group {
+            // The window this view is hosted in is kept alive after
+            // "close" for instant reopen (see AppDelegate.showDashboard),
+            // so this view never actually tears down — without this check,
+            // SwiftUI keeps re-evaluating the full section tree below at
+            // display refresh rate forever in the background, which was a
+            // steady 40-60% CPU sink for the rest of the session after the
+            // dashboard was ever opened even once.
+            if windowVisibility.dashboardVisible {
+                realContent
+            } else {
+                Color.clear
+            }
+        }
+        .onAppear {
+            isVisible = true
+            refresh()
+        }
+        .onDisappear {
+            isVisible = false
+        }
+        .onReceive(refreshTimer) { _ in
+            if isVisible { refresh() }
+        }
+    }
+
+    private var realContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppConfig.Layout.sectionSpacing) {
                 header
@@ -53,16 +80,6 @@ struct DashboardView: View {
         .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .environment(\.theme, theme)
         .environment(\.typography, typography)
-        .onAppear {
-            isVisible = true
-            refresh()
-        }
-        .onDisappear {
-            isVisible = false
-        }
-        .onReceive(refreshTimer) { _ in
-            if isVisible { refresh() }
-        }
     }
 
     // MARK: - Header
@@ -100,20 +117,7 @@ struct DashboardView: View {
             eventTap.togglePause()
         } label: {
             HStack(spacing: 6) {
-                ZStack {
-                    // Glow: a second circle scaling/fading outward behind
-                    // the dot. Kept as its own Circle (not a `.shadow`,
-                    // which rasterizes to a square bounding box at larger
-                    // radii) so the pulse stays perfectly round.
-                    Circle()
-                        .fill(pillColor)
-                        .frame(width: 7, height: 7)
-                        .scaleEffect(pillPulses && pulseOn ? 2.2 : 1)
-                        .opacity(pillPulses && pulseOn ? 0 : 0.6)
-                    Circle()
-                        .fill(pillColor)
-                        .frame(width: 7, height: 7)
-                }
+                PulsingDot(color: pillColor, pulses: pillPulses)
                 Text(pillLabel)
                     .font(typography.caption)
                     .foregroundStyle(theme.textDim)
@@ -126,8 +130,6 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canTrack)
-        .onAppear { startPulseIfNeeded() }
-        .onChange(of: pillPulses) { _, _ in startPulseIfNeeded() }
     }
 
     private var pillLabel: String {
@@ -141,16 +143,6 @@ struct DashboardView: View {
     }
 
     private var pillPulses: Bool { canTrack && !eventTap.isPaused }
-
-    private func startPulseIfNeeded() {
-        guard pillPulses else {
-            pulseOn = false
-            return
-        }
-        withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
-            pulseOn = true
-        }
-    }
 
     private var settingsButton: some View {
         Button {
@@ -643,6 +635,50 @@ struct DashboardView: View {
         // the crash fix.
         Storage.shared.snapshot { snap in
             snapshot = snap
+        }
+    }
+}
+
+// MARK: - Pulsing dot
+
+/// A self-contained leaf view for the status pill's pulse: `pulseOn` used to
+/// live as `@State` on `DashboardView` itself, so every 1s animation tick
+/// invalidated the ENTIRE dashboard body and re-ran every section's getter
+/// (topKeysSection, appsSection, etc. — real work: font lookups, array
+/// copies, string splits), 60fps, forever, any time the dashboard was open.
+/// That was a steady ~60% CPU sink. Owning `pulseOn` here means an
+/// animation tick only invalidates this tiny dot, not its ancestors.
+private struct PulsingDot: View {
+    let color: Color
+    let pulses: Bool
+    @State private var pulseOn = false
+
+    var body: some View {
+        ZStack {
+            // Glow: a second circle scaling/fading outward behind the dot.
+            // Kept as its own Circle (not a `.shadow`, which rasterizes to
+            // a square bounding box at larger radii) so the pulse stays
+            // perfectly round.
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .scaleEffect(pulses && pulseOn ? 2.2 : 1)
+                .opacity(pulses && pulseOn ? 0 : 0.6)
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+        }
+        .onAppear { startIfNeeded() }
+        .onChange(of: pulses) { _, _ in startIfNeeded() }
+    }
+
+    private func startIfNeeded() {
+        guard pulses else {
+            pulseOn = false
+            return
+        }
+        withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+            pulseOn = true
         }
     }
 }

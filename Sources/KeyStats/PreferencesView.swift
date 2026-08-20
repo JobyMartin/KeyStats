@@ -21,6 +21,7 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
     @ObservedObject private var permissions = PermissionMonitor.shared
     @ObservedObject private var eventTap = EventTapManager.shared
+    @ObservedObject private var windowVisibility = WindowVisibility.shared
     @State private var selectedTab: Tab = .appearance
     @State private var longestStreak: (days: Int, start: String, end: String)?
 
@@ -30,6 +31,20 @@ struct PreferencesView: View {
     }
 
     var body: some View {
+        // See the matching comment in DashboardView.body: this window is
+        // kept alive after "close" for instant reopen, so without this
+        // check SwiftUI keeps ticking this view's render/update pass
+        // forever in the background once it's ever been opened.
+        Group {
+            if windowVisibility.preferencesVisible {
+                realContent
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    private var realContent: some View {
         VStack(spacing: 0) {
             tabBar
             Divider().overlay(theme.borderSoft)
