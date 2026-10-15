@@ -419,19 +419,33 @@ struct DashboardView: View {
                 Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 let maxCount = snapshot.topKeys.first?.count ?? 1
+                let widestCount = maxCount.formatted()
                 VStack(spacing: 8) {
                     ForEach(snapshot.topKeys) { item in
                         HStack(spacing: 10) {
                             keycapChip(item.keyName)
                             barTrack(fraction: Double(item.count) / Double(maxCount), color: theme.accent)
                                 .frame(height: 16)
-                            Text(item.count.formatted())
+                            // Every row's count column is sized off the
+                            // widest number, so it grows (and the bars
+                            // shrink) as counts gain digits instead of the
+                            // numbers wrapping in a fixed-width frame.
+                            Text(widestCount)
                                 .font(typography.monoSmall)
-                                .foregroundStyle(theme.textDim)
-                                .frame(width: 42, alignment: .trailing)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .hidden()
+                                .overlay(alignment: .trailing) {
+                                    Text(item.count.formatted())
+                                        .font(typography.monoSmall)
+                                        .foregroundStyle(theme.textDim)
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                }
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.6), value: snapshot.topKeys.map(\.count))
             }
         }
     }
