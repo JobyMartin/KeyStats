@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // Four dark themes, switchable live — see znotes/design.md §3 for the
 // design source of truth (token table + vibe descriptions). All four share
@@ -34,6 +35,15 @@ struct AppTheme: Identifiable, Equatable {
     let series: [Color]
 
     static func == (lhs: AppTheme, rhs: AppTheme) -> Bool { lhs.id == rhs.id }
+
+    /// Native controls (switches, sliders, text fields, dividers) follow the
+    /// system appearance unless told otherwise, so a light theme under
+    /// system dark mode (or vice versa) would draw them in the wrong palette.
+    var colorScheme: ColorScheme {
+        let rgb = NSColor(bg).usingColorSpace(.sRGB)
+        let luminance = 0.2126 * (rgb?.redComponent ?? 0) + 0.7152 * (rgb?.greenComponent ?? 0) + 0.0722 * (rgb?.blueComponent ?? 0)
+        return luminance > 0.5 ? .light : .dark
+    }
 
     static let backlit = AppTheme(
         id: "backlit", name: "Backlit", description: "The keyboard glows. The work begins.",

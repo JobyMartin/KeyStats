@@ -15,18 +15,20 @@ enum StreakCalculator {
     ///     days here.
     ///   - countWeekends: when false, Saturday/Sunday are skipped entirely
     ///     (neither extend nor break the streak) — design §5.
+    ///   - vacationDays: skipped the same way as weekends, even on days
+    ///     that met the goal (`VacationMode.days`).
     ///   - today: the current date, used both to know which weekday is
     ///     "today" and as the walk's starting point.
     ///   - lookback: hard cap on how many days to walk, regardless of data.
     static func currentStreak(
         metGoalDays: Set<String>,
         countWeekends: Bool,
+        vacationDays: Set<String> = [],
         today: Date,
         lookback: Int = AppConfig.Goal.streakLookbackDays
     ) -> Int {
         let cal = Calendar.current
         var streak = 0
-        var isToday = true
 
         for offset in 0..<max(lookback, 0) {
             guard let date = cal.date(byAdding: .day, value: -offset, to: today) else { break }
@@ -34,18 +36,23 @@ enum StreakCalculator {
             if !countWeekends {
                 let weekday = cal.component(.weekday, from: date) // 1 = Sunday, 7 = Saturday
                 if weekday == 1 || weekday == 7 {
-                    continue // skips without touching `isToday` or breaking the streak
+                    continue // skips without breaking the streak
                 }
             }
 
-            let metGoal = metGoalDays.contains(DayKey.string(from: date))
+            let key = DayKey.string(from: date)
+            if vacationDays.contains(key) { continue }
 
-            if isToday {
+            let metGoal = metGoalDays.contains(key)
+
+            // Keyed off offset, not "first non-skipped day": on a Saturday
+            // or a vacation day, yesterday is finished and must be able to
+            // break the streak, not inherit today's in-progress grace.
+            if offset == 0 {
                 // Today is still in progress. Meeting goal already extends
                 // the streak; not meeting it yet must NOT break the streak —
                 // that would reset every user's streak to 0 every midnight
                 // until they've typed enough for the day.
-                isToday = false
                 if metGoal {
                     streak += 1
                 }
@@ -76,7 +83,8 @@ enum StreakCalculator {
     ///   length and its "yyyy-MM-dd" start/end days.
     static func longestStreak(
         metGoalDays: Set<String>,
-        countWeekends: Bool
+        countWeekends: Bool,
+        vacationDays: Set<String> = []
     ) -> (days: Int, start: String, end: String)? {
         guard let earliestKey = metGoalDays.min(),
               let earliest = DayKey.date(from: earliestKey) else { return nil }
@@ -100,6 +108,7 @@ enum StreakCalculator {
             }
 
             let key = DayKey.string(from: cursor)
+            if vacationDays.contains(key) { continue }
             if metGoalDays.contains(key) {
                 if runStart == nil { runStart = key }
                 runLength += 1

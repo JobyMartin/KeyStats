@@ -15,6 +15,8 @@ struct DashboardView: View {
     // @AppStorage means a future slider needs zero rework here.
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
+    @AppStorage(AppConfig.Defaults.vacationStartDay) private var vacationStartDay = ""
+    @AppStorage(AppConfig.Defaults.vacationPeriods) private var vacationPeriods = ""
     // Theme picker itself now lives in Preferences → Appearance
     // (PreferencesView.swift) — this just needs to read the same key so the
     // dashboard repaints when it's changed there.
@@ -79,6 +81,7 @@ struct DashboardView: View {
         .scrollContentBackground(.hidden)
         .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .environment(\.theme, theme)
+        .environment(\.colorScheme, theme.colorScheme)
         .environment(\.typography, typography)
     }
 
@@ -289,14 +292,9 @@ struct DashboardView: View {
 
     private var goalSection: some View {
         HStack(spacing: 16) {
-            RingGauge(
-                progress: goalProgress,
-                lineWidth: AppConfig.Layout.goalRingLineWidth,
-                trackColor: theme.borderSoft,
-                progressColor: goalMet ? theme.good : theme.accent
-            )
-            .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
-            .animation(.easeOut(duration: 0.4), value: goalProgress)
+            GoalRing(progress: goalRawProgress, met: goalMet)
+                .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
+                .animation(.easeOut(duration: 0.4), value: goalRawProgress)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(goalPercent)% of daily goal")
@@ -309,11 +307,7 @@ struct DashboardView: View {
 
             Spacer()
 
-            if streak > 0 {
-                Text("🔥 \(streak)-day streak")
-                    .font(typography.emphasis)
-                    .foregroundStyle(theme.accent)
-            }
+            streakBadge
         }
         .padding(AppConfig.Layout.cardPadding)
         .background(theme.surface)
@@ -324,13 +318,12 @@ struct DashboardView: View {
         )
     }
 
-    /// Clamped to the ring's 0...1 trim range.
-    private var goalProgress: Double {
+    private var goalRawProgress: Double {
         guard dailyGoal > 0 else { return 0 }
-        return min(max(Double(snapshot.totalToday) / Double(dailyGoal), 0), 1)
+        return max(Double(snapshot.totalToday) / Double(dailyGoal), 0)
     }
 
-    /// Unclamped, unlike `goalProgress` — so "142% of daily goal" reads
+    /// Unclamped — so "142% of daily goal" reads
     /// correctly once the ring itself is already full.
     private var goalPercent: Int {
         guard dailyGoal > 0 else { return 0 }
@@ -345,8 +338,41 @@ struct DashboardView: View {
         StreakCalculator.currentStreak(
             metGoalDays: snapshot.streakEligibleDays,
             countWeekends: countWeekendsTowardStreak,
+            vacationDays: VacationMode.days(startDay: vacationStartDay, encodedPeriods: vacationPeriods),
             today: Date()
         )
+    }
+
+    @ViewBuilder
+    private var streakBadge: some View {
+        switch VacationMode.status(startDay: vacationStartDay) {
+        case .active:
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("🏝️ On vacation")
+                    .font(typography.emphasis)
+                    .foregroundStyle(theme.accent)
+                Text(streak > 0 ? "\(streak)-day streak frozen" : "Streak paused")
+                    .font(typography.caption)
+                    .foregroundStyle(theme.textFaint)
+            }
+        case .scheduled:
+            VStack(alignment: .trailing, spacing: 2) {
+                if streak > 0 {
+                    Text("🔥 \(streak)-day streak")
+                        .font(typography.emphasis)
+                        .foregroundStyle(theme.accent)
+                }
+                Text("🏝️ Vacation starts tomorrow")
+                    .font(typography.caption)
+                    .foregroundStyle(theme.textFaint)
+            }
+        case .off:
+            if streak > 0 {
+                Text("🔥 \(streak)-day streak")
+                    .font(typography.emphasis)
+                    .foregroundStyle(theme.accent)
+            }
+        }
     }
 
     // MARK: - Weekly
@@ -418,19 +444,33 @@ struct DashboardView: View {
                 Text("No data yet").foregroundStyle(theme.textFaint)
             } else {
                 let maxCount = snapshot.topKeys.first?.count ?? 1
+                let widestCount = maxCount.formatted()
                 VStack(spacing: 8) {
                     ForEach(snapshot.topKeys) { item in
                         HStack(spacing: 10) {
                             keycapChip(item.keyName)
                             barTrack(fraction: Double(item.count) / Double(maxCount), color: theme.accent)
                                 .frame(height: 16)
-                            Text(item.count.formatted())
+                            // Every row's count column is sized off the
+                            // widest number, so it grows (and the bars
+                            // shrink) as counts gain digits instead of the
+                            // numbers wrapping in a fixed-width frame.
+                            Text(widestCount)
                                 .font(typography.monoSmall)
-                                .foregroundStyle(theme.textDim)
-                                .frame(width: 42, alignment: .trailing)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .hidden()
+                                .overlay(alignment: .trailing) {
+                                    Text(item.count.formatted())
+                                        .font(typography.monoSmall)
+                                        .foregroundStyle(theme.textDim)
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                }
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.6), value: snapshot.topKeys.map(\.count))
             }
         }
     }
@@ -679,6 +719,94 @@ private struct PulsingDot: View {
         }
         withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
             pulseOn = true
+        }
+    }
+}
+
+// MARK: - Goal ring
+
+/// The dashboard's daily-goal ring. Once the goal is met it switches to a
+/// glowing gradient with a checkmark, draws a second "bonus lap" for
+/// anything past 100%, and fires a one-shot sparkle burst (also on click).
+/// Like `PulsingDot`, the animation state lives in this leaf view so a burst
+/// never invalidates the rest of the dashboard — and nothing here repeats
+/// forever, so an idle dashboard stays idle.
+private struct GoalRing: View {
+    let progress: Double
+    let met: Bool
+
+    @Environment(\.theme) private var theme
+    @State private var checkShown = false
+    @State private var burst: Double = 1
+
+    private let sparkleCount = 12
+    private var lineWidth: CGFloat { AppConfig.Layout.goalRingLineWidth }
+
+    var body: some View {
+        GeometryReader { geo in
+            let radius = min(geo.size.width, geo.size.height) / 2
+            ZStack {
+                Circle()
+                    .stroke(theme.borderSoft, lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: min(progress, 1))
+                    .stroke(mainStroke, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: met ? theme.good.opacity(0.6) : .clear, radius: 6)
+                if progress > 1 {
+                    Circle()
+                        .trim(from: 0, to: min(progress - 1, 1))
+                        .stroke(theme.text.opacity(0.85), style: StrokeStyle(lineWidth: lineWidth * 0.4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                Image(systemName: "checkmark")
+                    .font(.system(size: radius * 0.7, weight: .heavy))
+                    .foregroundStyle(theme.good)
+                    .scaleEffect(checkShown ? 1 : 0.2)
+                    .opacity(checkShown ? 1 : 0)
+                ForEach(0..<sparkleCount, id: \.self) { index in
+                    sparkle(index: index, radius: radius)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .contentShape(Circle())
+        .onTapGesture { if met { celebrate() } }
+        .onAppear {
+            checkShown = met
+            if met { celebrate() }
+        }
+        .onChange(of: met) { _, isMet in
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { checkShown = isMet }
+            if isMet { celebrate() }
+        }
+    }
+
+    private var mainStroke: AnyShapeStyle {
+        guard met else { return AnyShapeStyle(theme.accent) }
+        return AnyShapeStyle(AngularGradient(colors: [theme.good, theme.accent, theme.good], center: .center))
+    }
+
+    private func sparkle(index: Int, radius: CGFloat) -> some View {
+        let angle = Double(index) / Double(sparkleCount) * 2 * .pi
+        let distance = radius + CGFloat(burst) * 18
+        let palette = [theme.good, theme.accent] + theme.series
+        return Circle()
+            .fill(palette[index % palette.count])
+            .frame(width: index.isMultiple(of: 2) ? 5 : 3.5)
+            .scaleEffect(1 - burst * 0.6)
+            .opacity(1 - burst)
+            .offset(x: cos(angle) * distance, y: sin(angle) * distance)
+            .allowsHitTesting(false)
+    }
+
+    private func celebrate() {
+        var reset = Transaction()
+        reset.disablesAnimations = true
+        withTransaction(reset) { burst = 0 }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.9)) { burst = 1 }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { checkShown = true }
         }
     }
 }

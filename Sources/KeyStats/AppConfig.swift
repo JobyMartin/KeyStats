@@ -114,6 +114,11 @@ enum AppConfig {
         /// started before quitting (e.g. "pause before a screen share")
         /// survives a relaunch instead of silently resuming.
         static let isPaused = "isPaused"
+        /// "yyyy-MM-dd" day the current vacation starts (always set to
+        /// tomorrow when enabled), or "" when vacation mode is off.
+        static let vacationStartDay = "vacationStartDay"
+        /// Finished vacations, encoded by `VacationMode.encode`.
+        static let vacationPeriods = "vacationPeriods"
     }
 }
 
