@@ -15,6 +15,8 @@ struct DashboardView: View {
     // @AppStorage means a future slider needs zero rework here.
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
+    @AppStorage(AppConfig.Defaults.vacationStartDay) private var vacationStartDay = ""
+    @AppStorage(AppConfig.Defaults.vacationPeriods) private var vacationPeriods = ""
     // Theme picker itself now lives in Preferences → Appearance
     // (PreferencesView.swift) — this just needs to read the same key so the
     // dashboard repaints when it's changed there.
@@ -305,11 +307,7 @@ struct DashboardView: View {
 
             Spacer()
 
-            if streak > 0 {
-                Text("🔥 \(streak)-day streak")
-                    .font(typography.emphasis)
-                    .foregroundStyle(theme.accent)
-            }
+            streakBadge
         }
         .padding(AppConfig.Layout.cardPadding)
         .background(theme.surface)
@@ -340,8 +338,41 @@ struct DashboardView: View {
         StreakCalculator.currentStreak(
             metGoalDays: snapshot.streakEligibleDays,
             countWeekends: countWeekendsTowardStreak,
+            vacationDays: VacationMode.days(startDay: vacationStartDay, encodedPeriods: vacationPeriods),
             today: Date()
         )
+    }
+
+    @ViewBuilder
+    private var streakBadge: some View {
+        switch VacationMode.status(startDay: vacationStartDay) {
+        case .active:
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("🏝️ On vacation")
+                    .font(typography.emphasis)
+                    .foregroundStyle(theme.accent)
+                Text(streak > 0 ? "\(streak)-day streak frozen" : "Streak paused")
+                    .font(typography.caption)
+                    .foregroundStyle(theme.textFaint)
+            }
+        case .scheduled:
+            VStack(alignment: .trailing, spacing: 2) {
+                if streak > 0 {
+                    Text("🔥 \(streak)-day streak")
+                        .font(typography.emphasis)
+                        .foregroundStyle(theme.accent)
+                }
+                Text("🏝️ Vacation starts tomorrow")
+                    .font(typography.caption)
+                    .foregroundStyle(theme.textFaint)
+            }
+        case .off:
+            if streak > 0 {
+                Text("🔥 \(streak)-day streak")
+                    .font(typography.emphasis)
+                    .foregroundStyle(theme.accent)
+            }
+        }
     }
 
     // MARK: - Weekly

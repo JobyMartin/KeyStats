@@ -17,6 +17,8 @@ struct PreferencesView: View {
     @AppStorage(AppConfig.Defaults.dailyGoal) private var dailyGoal = AppConfig.Goal.defaultDaily
     @AppStorage(AppConfig.Defaults.countWeekendsTowardStreak) private var countWeekendsTowardStreak = AppConfig.Goal.countWeekendsTowardStreakDefault
     @AppStorage(AppConfig.Defaults.displayName) private var displayName = ""
+    @AppStorage(AppConfig.Defaults.vacationStartDay) private var vacationStartDay = ""
+    @AppStorage(AppConfig.Defaults.vacationPeriods) private var vacationPeriods = ""
     @AppStorage(AppConfig.Defaults.fontScale) private var fontScaleRaw = FontScale.regular.rawValue
     @AppStorage(AppConfig.Defaults.fontPresetID) private var fontPresetID = FontPreset.system.id
     @ObservedObject private var permissions = PermissionMonitor.shared
@@ -392,10 +394,60 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 18) {
             dailyGoalEditor
             weekendToggle
+            vacationSection
             longestStreakSection
         }
         .task { loadLongestStreak() }
         .onChange(of: countWeekendsTowardStreak) { _, _ in loadLongestStreak() }
+        .onChange(of: vacationPeriods) { _, _ in loadLongestStreak() }
+    }
+
+    // MARK: - Vacation
+
+    private var vacationSection: some View {
+        settingsCard {
+            Toggle(isOn: vacationBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Vacation mode")
+                        .font(typography.label)
+                        .foregroundStyle(theme.text)
+                    Text(vacationCaption)
+                        .font(typography.caption)
+                        .foregroundStyle(theme.textFaint)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(theme.accent)
+        }
+    }
+
+    private var vacationCaption: String {
+        switch VacationMode.status(startDay: vacationStartDay) {
+        case .off:
+            return "Vacation days don't break your streak, and don't add to it either. Starts tomorrow, so it can't rescue today — turning it off counts today as a normal day."
+        case .scheduled:
+            return "Starts tomorrow. Today still counts normally."
+        case .active(let start):
+            return "On vacation since \(Self.dayLabel(start)) — streak frozen. Turning it off counts today as a normal day."
+        }
+    }
+
+    private var vacationBinding: Binding<Bool> {
+        Binding(get: { !vacationStartDay.isEmpty }, set: { on in
+            if on {
+                vacationStartDay = VacationMode.enabledStartDay(currentStartDay: vacationStartDay)
+            } else {
+                vacationPeriods = VacationMode.periodsAfterDisabling(startDay: vacationStartDay, encodedPeriods: vacationPeriods)
+                vacationStartDay = ""
+            }
+        })
+    }
+
+    private static func dayLabel(_ key: String) -> String {
+        guard let date = DayKey.date(from: key) else { return key }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 
     // MARK: - Longest streak
@@ -425,8 +477,9 @@ struct PreferencesView: View {
 
     private func loadLongestStreak() {
         let countWeekends = countWeekendsTowardStreak
+        let vacationDays = VacationMode.days(startDay: vacationStartDay, encodedPeriods: vacationPeriods)
         Storage.shared.allMetGoalDays { days in
-            longestStreak = StreakCalculator.longestStreak(metGoalDays: days, countWeekends: countWeekends)
+            longestStreak = StreakCalculator.longestStreak(metGoalDays: days, countWeekends: countWeekends, vacationDays: vacationDays)
         }
     }
 
