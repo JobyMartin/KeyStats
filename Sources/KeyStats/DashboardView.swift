@@ -290,14 +290,9 @@ struct DashboardView: View {
 
     private var goalSection: some View {
         HStack(spacing: 16) {
-            RingGauge(
-                progress: goalProgress,
-                lineWidth: AppConfig.Layout.goalRingLineWidth,
-                trackColor: theme.borderSoft,
-                progressColor: goalMet ? theme.good : theme.accent
-            )
-            .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
-            .animation(.easeOut(duration: 0.4), value: goalProgress)
+            GoalRing(progress: goalRawProgress, met: goalMet)
+                .frame(width: AppConfig.Layout.goalRingSize, height: AppConfig.Layout.goalRingSize)
+                .animation(.easeOut(duration: 0.4), value: goalRawProgress)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(goalPercent)% of daily goal")
@@ -325,13 +320,12 @@ struct DashboardView: View {
         )
     }
 
-    /// Clamped to the ring's 0...1 trim range.
-    private var goalProgress: Double {
+    private var goalRawProgress: Double {
         guard dailyGoal > 0 else { return 0 }
-        return min(max(Double(snapshot.totalToday) / Double(dailyGoal), 0), 1)
+        return max(Double(snapshot.totalToday) / Double(dailyGoal), 0)
     }
 
-    /// Unclamped, unlike `goalProgress` — so "142% of daily goal" reads
+    /// Unclamped — so "142% of daily goal" reads
     /// correctly once the ring itself is already full.
     private var goalPercent: Int {
         guard dailyGoal > 0 else { return 0 }
@@ -694,6 +688,94 @@ private struct PulsingDot: View {
         }
         withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
             pulseOn = true
+        }
+    }
+}
+
+// MARK: - Goal ring
+
+/// The dashboard's daily-goal ring. Once the goal is met it switches to a
+/// glowing gradient with a checkmark, draws a second "bonus lap" for
+/// anything past 100%, and fires a one-shot sparkle burst (also on click).
+/// Like `PulsingDot`, the animation state lives in this leaf view so a burst
+/// never invalidates the rest of the dashboard — and nothing here repeats
+/// forever, so an idle dashboard stays idle.
+private struct GoalRing: View {
+    let progress: Double
+    let met: Bool
+
+    @Environment(\.theme) private var theme
+    @State private var checkShown = false
+    @State private var burst: Double = 1
+
+    private let sparkleCount = 12
+    private var lineWidth: CGFloat { AppConfig.Layout.goalRingLineWidth }
+
+    var body: some View {
+        GeometryReader { geo in
+            let radius = min(geo.size.width, geo.size.height) / 2
+            ZStack {
+                Circle()
+                    .stroke(theme.borderSoft, lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: min(progress, 1))
+                    .stroke(mainStroke, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: met ? theme.good.opacity(0.6) : .clear, radius: 6)
+                if progress > 1 {
+                    Circle()
+                        .trim(from: 0, to: min(progress - 1, 1))
+                        .stroke(theme.text.opacity(0.85), style: StrokeStyle(lineWidth: lineWidth * 0.4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                Image(systemName: "checkmark")
+                    .font(.system(size: radius * 0.7, weight: .heavy))
+                    .foregroundStyle(theme.good)
+                    .scaleEffect(checkShown ? 1 : 0.2)
+                    .opacity(checkShown ? 1 : 0)
+                ForEach(0..<sparkleCount, id: \.self) { index in
+                    sparkle(index: index, radius: radius)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .contentShape(Circle())
+        .onTapGesture { if met { celebrate() } }
+        .onAppear {
+            checkShown = met
+            if met { celebrate() }
+        }
+        .onChange(of: met) { _, isMet in
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { checkShown = isMet }
+            if isMet { celebrate() }
+        }
+    }
+
+    private var mainStroke: AnyShapeStyle {
+        guard met else { return AnyShapeStyle(theme.accent) }
+        return AnyShapeStyle(AngularGradient(colors: [theme.good, theme.accent, theme.good], center: .center))
+    }
+
+    private func sparkle(index: Int, radius: CGFloat) -> some View {
+        let angle = Double(index) / Double(sparkleCount) * 2 * .pi
+        let distance = radius + CGFloat(burst) * 18
+        let palette = [theme.good, theme.accent] + theme.series
+        return Circle()
+            .fill(palette[index % palette.count])
+            .frame(width: index.isMultiple(of: 2) ? 5 : 3.5)
+            .scaleEffect(1 - burst * 0.6)
+            .opacity(1 - burst)
+            .offset(x: cos(angle) * distance, y: sin(angle) * distance)
+            .allowsHitTesting(false)
+    }
+
+    private func celebrate() {
+        var reset = Transaction()
+        reset.disablesAnimations = true
+        withTransaction(reset) { burst = 0 }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.9)) { burst = 1 }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { checkShown = true }
         }
     }
 }
