@@ -56,6 +56,7 @@ struct PreferencesView: View {
         .frame(width: AppConfig.Window.preferencesSize.width, height: AppConfig.Window.preferencesSize.height)
         .background(theme.bg)
         .environment(\.theme, theme)
+        .environment(\.colorScheme, theme.colorScheme)
         .environment(\.typography, typography)
     }
 
@@ -358,7 +359,7 @@ struct PreferencesView: View {
                 }
                 Text(candidate.name)
                     .font(typography.cardTitle)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(candidate.text)
                     .lineLimit(1)
                 // Fixed height (not just `lineLimit(2)`) so a one-line
                 // description doesn't leave its card shorter than a
@@ -368,7 +369,7 @@ struct PreferencesView: View {
                 // cards look mismatched.
                 Text(candidate.description)
                     .font(typography.caption)
-                    .foregroundStyle(theme.textFaint)
+                    .foregroundStyle(candidate.textDim)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .frame(height: AppConfig.Layout.themeCardDescriptionHeight, alignment: .top)

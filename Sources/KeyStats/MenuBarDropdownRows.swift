@@ -50,6 +50,7 @@ struct MenuBarGreetingRow: View {
         .frame(width: dropdownRowWidth, alignment: .leading)
         .background(theme.bg)
         .environment(\.theme, theme)
+        .environment(\.colorScheme, theme.colorScheme)
         .environment(\.typography, typography)
     }
 }
@@ -87,6 +88,7 @@ struct MenuBarStatRow: View {
         .frame(width: dropdownRowWidth, alignment: .leading)
         .background(theme.bg)
         .environment(\.theme, theme)
+        .environment(\.colorScheme, theme.colorScheme)
         .environment(\.typography, typography)
     }
 }

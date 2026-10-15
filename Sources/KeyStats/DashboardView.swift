@@ -79,6 +79,7 @@ struct DashboardView: View {
         .scrollContentBackground(.hidden)
         .frame(minWidth: AppConfig.Window.dashboardMinWidth, minHeight: AppConfig.Window.dashboardMinHeight)
         .environment(\.theme, theme)
+        .environment(\.colorScheme, theme.colorScheme)
         .environment(\.typography, typography)
     }
 
