@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pauseMenuItem: NSMenuItem?
     private var pauseCancellable: AnyCancellable?
     private lazy var lastFontSignature = Self.fontSignature()
+    /// The app that was in front when the shortcut opened the dashboard, so
+    /// hiding it with the shortcut hands focus back instead of leaving you
+    /// on an empty KeyStats.
+    private var previousApp: NSRunningApplication?
     private let launchedAt = Date()
     private static let launchTimeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -33,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         setupStatusItem()
         registerPowerNotifications()
+        HotKeyCenter.shared.onPress = { [weak self] in self?.toggleDashboardFromShortcut() }
+        HotKeyCenter.shared.register(UserSettings.hotKey)
         NotificationCenter.default.addObserver(forName: .openPreferences, object: nil, queue: .main) { [weak self] _ in
             self?.showPreferences()
         }
@@ -228,6 +234,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 hosting.rootView = MenuBarGreetingRow(firstName: UserSettings.firstName, launchTime: Self.launchTimeFormatter.string(from: launchedAt), isPaused: isPaused)
                 hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
             }
+        }
+    }
+
+    /// Hides only when the dashboard is what you're looking at. If it's open
+    /// but buried behind another app, the shortcut brings it forward instead.
+    private func toggleDashboardFromShortcut() {
+        if let window, window.isVisible, window.isKeyWindow, NSApp.isActive {
+            // close() rather than orderOut so willClose flips
+            // dashboardVisible and the SwiftUI tick stops.
+            window.close()
+            if let previousApp, !previousApp.isTerminated { previousApp.activate() }
+            previousApp = nil
+        } else {
+            let front = NSWorkspace.shared.frontmostApplication
+            previousApp = front == .current ? nil : front
+            showDashboard()
         }
     }
 

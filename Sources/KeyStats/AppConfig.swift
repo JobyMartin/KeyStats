@@ -119,6 +119,8 @@ enum AppConfig {
         static let vacationStartDay = "vacationStartDay"
         /// Finished vacations, encoded by `VacationMode.encode`.
         static let vacationPeriods = "vacationPeriods"
+        /// JSON-encoded `HotKey` for showing/hiding the dashboard.
+        static let hotKey = "hotKey"
     }
 }
 
@@ -160,6 +162,19 @@ enum UserSettings {
     /// views should prefer `@AppStorage(AppConfig.Defaults.fontScale)`.
     static var fontScale: FontScale {
         FontScale(rawValue: UserDefaults.standard.string(forKey: AppConfig.Defaults.fontScale) ?? "") ?? .regular
+    }
+
+    /// The dashboard's global shortcut. Falls back to ⌥⌘K when never set.
+    static var hotKey: HotKey {
+        get {
+            UserDefaults.standard.data(forKey: AppConfig.Defaults.hotKey)
+                .flatMap { try? JSONDecoder().decode(HotKey.self, from: $0) } ?? .standard
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: AppConfig.Defaults.hotKey)
+            }
+        }
     }
 
     static var fontPreset: FontPreset {

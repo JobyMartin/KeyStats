@@ -1,4 +1,5 @@
 import SwiftUI
+import Carbon.HIToolbox
 
 // Real Preferences window — design §4, §8.4. General is a placeholder
 // (design §8 pickup order puts display name/pause-resume ahead of it);
@@ -97,6 +98,7 @@ struct PreferencesView: View {
     /// `surfaceRaised` background, radius-10, 1px `border` stroke.
     private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(theme.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -111,6 +113,7 @@ struct PreferencesView: View {
     private var generalTab: some View {
         VStack(alignment: .leading, spacing: 18) {
             displayNameSection
+            shortcutSection
             pauseTrackingSection
             accessibilitySection
             VStack(alignment: .leading, spacing: 8) {
@@ -123,6 +126,25 @@ struct PreferencesView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+    }
+
+    // MARK: - Shortcut
+
+    private var shortcutSection: some View {
+        settingsCard {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show dashboard")
+                        .font(typography.label)
+                        .foregroundStyle(theme.text)
+                    Text("Opens or hides the dashboard from anywhere. Click, then press the keys. Escape cancels.")
+                        .font(typography.caption)
+                        .foregroundStyle(theme.textFaint)
+                }
+                Spacer()
+                HotKeyRecorder()
+            }
+        }
     }
 
     // MARK: - Pause tracking
@@ -579,5 +601,59 @@ struct PreferencesView: View {
 
     private var sliderBinding: Binding<Double> {
         Binding(get: { Double(dailyGoal) }, set: { dailyGoal = Int($0) })
+    }
+}
+
+// MARK: - Shortcut recorder
+
+private struct HotKeyRecorder: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var typography
+    @State private var hotKey = UserSettings.hotKey
+    @State private var recording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        Button {
+            recording ? stop() : start()
+        } label: {
+            Text(recording ? "Type a shortcut…" : hotKey.display)
+                .font(typography.strongSmall)
+                .foregroundStyle(recording ? theme.accent : theme.text)
+                .padding(.horizontal, 12)
+                .frame(minWidth: 70, minHeight: 26)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(recording ? theme.accent : theme.border, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onDisappear(perform: stop)
+    }
+
+    private func start() {
+        recording = true
+        HotKeyCenter.shared.suspend()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == UInt16(kVK_Escape) {
+                stop()
+            } else if let key = HotKey(event: event) {
+                hotKey = key
+                UserSettings.hotKey = key
+                stop()
+            }
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        guard recording else { return }
+        recording = false
+        HotKeyCenter.shared.register(hotKey)
     }
 }
