@@ -98,6 +98,7 @@ struct PreferencesView: View {
     /// `surfaceRaised` background, radius-10, 1px `border` stroke.
     private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(theme.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
